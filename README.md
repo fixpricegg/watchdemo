@@ -1,2 +1,10 @@
-# watchdemo
-CS2 demo analysis platform with match reports and AI-based recommendations
+# WatchDemo
+WatchDemo is a web platform for analyzing CS2 demo files.
+
+The goal of project is to help players identify mistakes in their mathces.
+
+## Project status
+Early cincept / MVP planning stage/
+
+## Author
+Marko Petkovich
