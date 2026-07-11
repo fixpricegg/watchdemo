@@ -104,6 +104,3 @@ React report and radar
 5. Improve performance, error handling, and UI.
 6. Prepare a testable public MVP.
 
-## Author
-
-Created by [Marko Petkovich](https://github.com/fixpricegg).
