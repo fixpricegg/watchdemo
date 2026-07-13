@@ -1,0 +1,1023 @@
+from demoparser2 import DemoParser
+from missed_trade import get_possible_missed_trades
+from report import generate_report
+import radar
+import draw_radar
+import json
+import pandas as pd
+
+
+def clean_deaths(df):
+    if "weapon" in df.columns:
+        df = df[df["weapon"].fillna("").str.lower() != "world"]
+
+    df = df[
+        ~df["attacker_name"].fillna("").str.lower().eq("world") &
+        ~df["user_name"].fillna("").str.lower().eq("world")
+    ]
+
+    return df
+
+
+def format_time_left(ticks, round_time=115, tickrate=64):
+    if ticks is None:
+        return "нет данных"
+
+    seconds_passed = ticks / tickrate
+    seconds_left = int(round_time - seconds_passed)
+
+    if seconds_left < 0:
+        seconds_left = 0
+
+    minutes = seconds_left // 60
+    seconds = seconds_left % 60
+
+    return f"{minutes}:{seconds:02d}"
+
+
+def get_game_ticks_between(start_tick, event_tick, live_ticks_df):
+    if live_ticks_df is None:
+        return max(0, event_tick - start_tick)
+
+    ticks_in_range = live_ticks_df[
+        (live_ticks_df["tick"] >= start_tick) &
+        (live_ticks_df["tick"] <= event_tick)
+    ]
+    return ticks_in_range["tick"].nunique()
+
+def safe_parse_event(parser, event_name):
+    try:
+        return parser.parse_event(event_name)
+    except Exception as e:
+        print(f"WARNING: не удалось прочитать event {event_name}: {e}")
+        return pd.DataFrame()
+
+def create_event(
+    event_type,
+    category,
+    round_number,
+    tick=None,
+    time=None,
+    importance=1,
+    title=None,
+    description="",
+    data=None,
+):
+    return {
+        "type": event_type,
+        "category": category,
+        "round": int(round_number),
+        "tick": int(tick) if tick is not None else None,
+        "time": time,
+        "importance": int(importance),
+        "title": title or event_type,
+        "description": description,
+        "data": data or {}
+    }
+
+def get_player_team(steamid, team_by_steamid):
+    if pd.isna(steamid):
+        return None
+
+    steamid = int(steamid)
+    return team_by_steamid.get(steamid)
+
+
+def get_match_start_tick(parser):
+    candidate_ticks = []
+
+    for event_name in ["begin_new_match", "round_announce_match_start"]:
+        df = safe_parse_event(parser, event_name)
+
+        if not df.empty and "tick" in df.columns:
+            candidate_ticks.extend(df["tick"].dropna().astype(int).tolist())
+
+    if candidate_ticks:
+        return max(candidate_ticks)
+
+    return None
+
+def score_low_impact(kd, entry_kills, entry_deaths, entry_success):
+    entry_total = entry_kills + entry_deaths
+
+    if kd >= 0.9:
+        return 0
+
+    if entry_kills < 3:
+        if kd < 0.7:
+            return 3
+        return 2
+
+    if entry_success is not None and entry_success < 50:
+        if kd < 0.7:
+            return 3
+        return 2
+
+    return 0
+
+
+def score_early_death(avg_time_first_death, entry_deaths, deaths_count):
+    if avg_time_first_death is None or deaths_count == 0:
+        return 0
+
+    if avg_time_first_death < 1600 and entry_deaths >= deaths_count * 0.30:
+        return 3
+    elif avg_time_first_death < 2240 and entry_deaths >= deaths_count * 0.27:
+        return 2
+    else:
+        return 0
+
+
+def score_entry_success(entry_kills, entry_deaths):
+    entry_total = entry_kills + entry_deaths
+
+    if entry_total < 5:
+        return 0
+
+    success = entry_kills / entry_total
+
+    if success < 0.40:
+        return 3
+    elif success < 0.50:
+        return 2
+    else:
+        return 0
+
+
+def score_passive_play(entry_kills, entry_deaths, avg_time_first_kill):
+    entry_total = entry_kills + entry_deaths
+
+    if entry_total < 3:
+        return 0
+
+    if avg_time_first_kill is None:
+        return 0
+
+    if entry_total <= 3 and avg_time_first_kill >= 4160:
+        return 3
+    elif entry_total <= 4 and avg_time_first_kill >= 3840:
+        return 2
+    else:
+        return 0
+
+
+def score_hs(hs_rate):
+    if hs_rate is None:
+        return 0
+
+    if hs_rate < 0.25:
+        return 3
+    elif hs_rate < 0.30:
+        return 2
+    else:
+        return 0
+
+
+demo_path = "demos/match12.dem"
+player = "k1tagawaaa"
+
+parser = DemoParser(demo_path)
+
+map_name = radar.get_map_name(parser)
+
+print()
+print("MAP:")
+print(map_name)
+pd.set_option("display.max_columns", None)
+
+player_info = parser.parse_player_info()
+
+team_by_steamid = {
+    int(row["steamid"]): int(row["team_number"])
+    for _, row in player_info.iterrows()
+}
+
+
+# =========================
+# 1. Tick-level state
+# =========================
+try:
+    tick_df = parser.parse_ticks([
+        "tick",
+        "is_freeze_period",
+        "is_technical_timeout",
+        "is_waiting_for_resume",
+        "is_ct_timeout",
+        "is_terrorist_timeout"
+    ])
+
+    live_ticks = tick_df[
+        (~tick_df["is_freeze_period"]) &
+        (~tick_df["is_technical_timeout"]) &
+        (~tick_df["is_waiting_for_resume"]) &
+        (~tick_df["is_ct_timeout"]) &
+        (~tick_df["is_terrorist_timeout"])
+    ]
+
+    live_ticks = live_ticks[["tick"]].drop_duplicates().sort_values("tick")
+
+except Exception as e:
+    print("WARNING: parse_ticks сломался, тайминги будут считаться без фильтра пауз.")
+    print("parse_ticks error:", e)
+    live_ticks = None
+
+# =========================
+# 2. Deaths
+# =========================
+deaths = parser.parse_event("player_death")
+
+if deaths.empty:
+    print("В демке не найдено событий player_death.")
+    exit()
+
+deaths = clean_deaths(deaths)
+
+if "weapon" in deaths.columns:
+    knife_weapons = [
+        "knife",
+        "knife_t",
+        "knife_gg",
+        "bayonet",
+        "knife_css",
+        "knife_flip",
+        "knife_gut",
+        "knife_karambit",
+        "knife_m9_bayonet",
+        "knife_tactical",
+        "knife_falchion",
+        "knife_survival_bowie",
+        "knife_butterfly",
+        "knife_push"
+    ]
+    deaths = deaths[~deaths["weapon"].isin(knife_weapons)]
+
+if deaths.empty:
+    print("После очистки не осталось игровых смертей.")
+    exit()
+
+match_end_tick = deaths["tick"].max()
+
+# =========================
+# 3. Round live starts через round_freeze_end
+# =========================
+round_live_starts = parser.parse_event("round_freeze_end")
+
+round_starts = parser.parse_event("round_prestart")
+
+round_ends = safe_parse_event(parser, "round_end")
+
+print("\n== ROUND END DEBUG ==")
+
+if round_ends.empty:
+    print("round_end пустой")
+else:
+    print("columns:", round_ends.columns.tolist())
+    print(round_ends.head(20).to_string())
+
+if round_starts.empty:
+    print("Не найдены события round_start.")
+    exit()
+
+round_start_clean = (
+    round_starts[["tick"]]
+    .drop_duplicates()
+    .reset_index(drop=True)
+)
+
+round_start_clean["round"] = range(
+    1,
+    len(round_start_clean) + 1
+)
+
+round_start_clean = round_start_clean[["round", "tick"]]
+
+
+round_live_clean = round_live_starts.reset_index(drop=True)
+
+if "round" in round_live_clean.columns:
+    round_live_clean = round_live_clean.groupby("round", as_index=False)["tick"].max()
+else:
+    round_live_clean = round_live_clean[["tick"]].copy()
+    round_live_clean["round"] = range(1, len(round_live_clean) + 1)
+    round_live_clean = round_live_clean[["round", "tick"]]
+
+# =========================
+# 3.1 Находим начало реального матча
+# Фильтруем всё, что было до begin_new_match / round_announce_match_start
+# =========================
+match_start_tick = get_match_start_tick(parser)
+
+if match_start_tick is not None:
+    round_live_clean = round_live_clean[
+        round_live_clean["tick"] >= match_start_tick
+    ].copy()
+else:
+    print("WARNING: match_start_tick не найден. Технические раунды могут попасть в анализ.")
+
+round_live_clean = round_live_clean.reset_index(drop=True)
+
+# demo_round — технический номер в демке
+if "round" in round_live_clean.columns:
+    round_live_clean["demo_round"] = round_live_clean["round"].astype(int)
+else:
+    round_live_clean["demo_round"] = range(1, len(round_live_clean) + 1)
+
+# match_round — номер реального раунда для пользователя
+round_live_clean["match_round"] = range(1, len(round_live_clean) + 1)
+
+print("\n== MATCH START DEBUG ==")
+print("match_start_tick:", match_start_tick)
+print(round_live_clean[["demo_round", "match_round", "tick"]].head(10))
+
+# =========================
+# 4. Round intervals только через round_freeze_end
+# =========================
+round_intervals = []
+live_start_ticks = round_live_clean["tick"].tolist()
+
+for i in range(len(round_live_clean)):
+    start_tick = int(round_live_clean.iloc[i]["tick"])
+    match_round = int(round_live_clean.iloc[i]["match_round"])
+    demo_round = int(round_live_clean.iloc[i]["demo_round"])
+
+    if i < len(round_live_clean) - 1:
+        end_tick = int(round_live_clean.iloc[i + 1]["tick"])
+    else:
+        end_tick = int(match_end_tick) + 1
+
+    round_intervals.append((match_round, demo_round, start_tick, end_tick))
+
+# =========================
+# 4.1 Timeline rounds
+# =========================
+timeline_rounds = []
+
+for i in range(len(round_live_clean)):
+    match_round = int(round_live_clean.iloc[i]["match_round"])
+    demo_round = int(round_live_clean.iloc[i]["demo_round"])
+
+    freeze_start_tick = int(
+        round_start_clean.iloc[demo_round - 1]["tick"]
+    )
+
+    live_start_tick = int(
+        round_live_clean.iloc[i]["tick"]
+    )
+
+    if i < len(round_live_clean) - 1:
+        next_demo_round = int(
+            round_live_clean.iloc[i + 1]["demo_round"]
+        )
+
+        end_tick = int(
+            round_start_clean.iloc[next_demo_round - 1]["tick"]
+        )
+    else:
+        end_tick = int(match_end_tick) + 1
+
+    timeline_rounds.append({
+        "round": match_round,
+        "freeze_start_tick": freeze_start_tick,
+        "live_start_tick": live_start_tick,
+        "end_tick": end_tick
+    })
+
+# =========================
+# 5. Deaths inside live rounds
+# =========================
+clean_deaths_list = []
+
+for _, death in deaths.iterrows():
+    death_tick = death["tick"]
+
+    for match_round, demo_round, start_tick, end_tick in round_intervals:
+        if start_tick <= death_tick < end_tick:
+            death_copy = death.copy()
+            death_copy["round"] = match_round
+            death_copy["match_round"] = match_round
+            death_copy["demo_round"] = demo_round
+            clean_deaths_list.append(death_copy)
+            break
+
+deaths_clean = pd.DataFrame(clean_deaths_list)
+
+
+if deaths_clean.empty:
+    print("После фильтрации по live-раундам не осталось смертей.")
+    exit()
+
+# =========================
+# 5.1 Positions
+# =========================
+try:
+    position_df = parser.parse_ticks([
+        "tick",
+        "name",
+        "steamid",
+        "X",
+        "Y",
+        "Z",
+        "is_alive",
+        "team_num"
+    ])
+except Exception as e:
+    print("POSITION PARSE WITH TEAM ERROR:", e)
+    print("Пробую прочитать позиции без team_num.")
+
+    position_df = parser.parse_ticks([
+        "tick",
+        "name",
+        "steamid",
+        "X",
+        "Y",
+        "Z",
+        "is_alive"
+    ])
+
+    position_df["team_num"] = None
+
+# =========================
+# 5.1.1 Timeline score
+# =========================
+player_team_rows = (
+    position_df[
+        (position_df["name"] == player) &
+        (position_df["team_num"].notna())
+    ][["tick", "team_num"]]
+    .drop_duplicates()
+    .sort_values("tick")
+    .reset_index(drop=True)
+)
+
+
+def get_player_side_at_tick(target_tick):
+    if player_team_rows.empty:
+        return None
+
+    rows_before_tick = player_team_rows[
+        player_team_rows["tick"] <= target_tick
+    ]
+
+    if not rows_before_tick.empty:
+        return int(rows_before_tick.iloc[-1]["team_num"])
+
+    rows_after_tick = player_team_rows[
+        player_team_rows["tick"] > target_tick
+    ]
+
+    if not rows_after_tick.empty:
+        return int(rows_after_tick.iloc[0]["team_num"])
+
+    return None
+
+
+player_team_score = 0
+enemy_team_score = 0
+
+for timeline_round in timeline_rounds:
+    live_start_tick = int(timeline_round["live_start_tick"])
+    end_tick = int(timeline_round["end_tick"])
+
+    player_side_number = get_player_side_at_tick(live_start_tick)
+
+    if player_side_number == 3:
+        timeline_round["ct_score"] = int(player_team_score)
+        timeline_round["t_score"] = int(enemy_team_score)
+        player_side_name = "CT"
+
+    elif player_side_number == 2:
+        timeline_round["ct_score"] = int(enemy_team_score)
+        timeline_round["t_score"] = int(player_team_score)
+        player_side_name = "T"
+
+    else:
+        timeline_round["ct_score"] = int(player_team_score)
+        timeline_round["t_score"] = int(enemy_team_score)
+        player_side_name = None
+
+    round_result = round_ends[
+        (round_ends["tick"] >= live_start_tick) &
+        (round_ends["tick"] < end_tick) &
+        (round_ends["winner"].notna())
+    ].sort_values("tick")
+
+    if round_result.empty or player_side_name is None:
+        continue
+
+    winner_side = str(
+        round_result.iloc[0]["winner"]
+    ).upper()
+
+    if winner_side == player_side_name:
+        player_team_score += 1
+    elif winner_side in ["CT", "T"]:
+        enemy_team_score += 1
+
+# =========================
+# 5.2 Radar
+# =========================
+radar_match = radar.build_radar_match(
+    position_df,
+    map_name,
+    player_info
+)
+
+# radar.export_radar_json(
+#     radar_match,
+#     timeline_rounds
+# )
+
+
+
+test_tick = 100000
+
+# draw_radar.build_frame(
+#     radar_match,
+#     50000
+# )
+#
+# draw_radar.build_frame(
+#     radar_match,
+#     100000
+# )
+#
+# draw_radar.build_frame(
+#     radar_match,
+#     150000
+# )
+
+
+
+# =========================
+# 6. Player stats
+# =========================
+events = []
+
+missed_trade_events = []
+
+if position_df is not None:
+    missed_trade_events = get_possible_missed_trades(
+        player,
+        deaths_clean,
+        player_info,
+        position_df
+    )
+
+player_kills = deaths_clean[deaths_clean["attacker_name"] == player]
+player_deaths = deaths_clean[deaths_clean["user_name"] == player]
+
+kills_count = len(player_kills)
+deaths_count = len(player_deaths)
+
+if deaths_count > 0:
+    kd = kills_count / deaths_count
+else:
+    kd = float(kills_count)
+
+if "headshot" in player_kills.columns and kills_count > 0:
+    headshots = player_kills[player_kills["headshot"] == True]
+    hs_rate = len(headshots) / kills_count
+else:
+    hs_rate = None
+
+# =========================
+# 6.1 Multi-kills
+# =========================
+if not player_kills.empty and "round" in player_kills.columns:
+    kills_by_round = player_kills.groupby("round").size()
+
+    two_k = int((kills_by_round == 2).sum())
+    three_k = int((kills_by_round == 3).sum())
+    four_k = int((kills_by_round == 4).sum())
+    ace = int((kills_by_round >= 5).sum())
+
+    multi_kills = int((kills_by_round >= 2).sum())
+    for round_number, kills_in_round in kills_by_round.items():
+
+        if kills_in_round < 2:
+            continue
+
+        importance = 1
+
+        if kills_in_round == 3:
+            importance = 2
+        elif kills_in_round == 4:
+            importance = 3
+        elif kills_in_round >= 5:
+            importance = 4
+
+        events.append(
+            create_event(
+                event_type="multi_kill",
+                category="positive",
+                round_number=round_number,
+                importance=importance,
+                title=f"{int(kills_in_round)}K round",
+                description=f"Ты сделал {int(kills_in_round)} убийства в раунде.",
+                data={
+                    "kills": int(kills_in_round)
+                }
+            )
+        )
+else:
+    two_k = 0
+    three_k = 0
+    four_k = 0
+    ace = 0
+    multi_kills = 0
+
+# =========================
+# 6.2 Missed trades
+# =========================
+
+
+print("\nMISSED TRADES:")
+print(missed_trade_events)
+
+for missed_trade in missed_trade_events:
+    events.append(
+        create_event(
+            event_type="missed_trade",
+            category="negative",
+            round_number=missed_trade["round"],
+            tick=missed_trade["tick"],
+            importance=2,
+            title="Missed Trade",
+            description=(
+                f"После смерти {missed_trade['dead_teammate']} "
+                f"у тебя мог быть размен. "
+                f"{missed_trade['killer']} оставался жив ещё "
+                f"{missed_trade['killer_alive_ticks'] / 64:.1f} сек."
+            ),
+            data=missed_trade
+        )
+    )
+
+# =========================
+# 6.3 Trade kills
+# =========================
+TRADE_WINDOW_TICKS = 3 * 64
+
+trade_kills_count = 0
+
+for _, kill in player_kills.iterrows():
+
+    kill_tick = int(kill["tick"])
+    kill_round = int(kill["round"])
+
+    player_team = get_player_team(
+        kill["attacker_steamid"],
+        team_by_steamid
+    )
+
+    if player_team is None:
+        continue
+
+    recent_deaths = deaths_clean[
+        (deaths_clean["round"] == kill_round) &
+        (deaths_clean["tick"] < kill_tick) &
+        (kill_tick - deaths_clean["tick"] <= TRADE_WINDOW_TICKS)
+    ]
+
+    for _, death in recent_deaths.iterrows():
+
+        dead_teammate_team = get_player_team(
+            death["user_steamid"],
+            team_by_steamid
+        )
+
+        killer_team = get_player_team(
+            death["attacker_steamid"],
+            team_by_steamid
+        )
+
+        if dead_teammate_team != player_team:
+            continue
+
+        if killer_team == player_team:
+            continue
+
+        if dead_teammate_team != player_team:
+            continue
+
+        if killer_team == player_team:
+            continue
+
+        if kill["user_steamid"] != death["attacker_steamid"]:
+            continue
+
+        events.append(
+            create_event(
+                event_type="trade_kill",
+                category="positive",
+                round_number=kill_round,
+                tick=kill_tick,
+                importance=2,
+                title="Trade Kill",
+                description=f"Ты быстро разменял погибшего тиммейта {death['user_name']}.",
+                data={
+                    "traded_teammate": death["user_name"],
+                    "enemy": kill["user_name"]
+                }
+            )
+        )
+        trade_kills_count += 1
+
+        break
+
+print("\n== TRADE DEBUG ==")
+print(f"Trade kills: {trade_kills_count}")
+
+print("\n== TRADE EVENTS ==")
+
+for event in events:
+    if event["type"] == "trade_kill":
+        print(
+            f"Round {event['round']} | "
+            f"{event['data']['traded_teammate']} traded"
+        )
+
+
+
+
+
+# =========================
+# 7. Entry + timing + events
+# =========================
+entry_kills = 0
+entry_deaths = 0
+first_kill_times = []
+first_death_times = []
+
+for match_round, demo_round, live_start_tick, live_end_tick in round_intervals:
+    round_kills = deaths_clean[
+        (deaths_clean["tick"] >= live_start_tick) &
+        (deaths_clean["tick"] < live_end_tick)
+    ]
+
+    if round_kills.empty:
+        continue
+
+    first_kill = round_kills.loc[round_kills["tick"].idxmin()]
+
+    game_ticks_to_first_event = get_game_ticks_between(
+        int(live_start_tick),
+        int(first_kill["tick"]),
+        live_ticks
+    )
+
+    if first_kill["attacker_name"] == player:
+        entry_kills += 1
+        first_kill_times.append(game_ticks_to_first_event)
+
+    if first_kill["user_name"] == player:
+        entry_deaths += 1
+        first_death_times.append(game_ticks_to_first_event)
+
+        event_type = "early_death"
+        importance = 2
+
+        if game_ticks_to_first_event < 1600:
+            event_type = "failed_entry"
+            importance = 3
+
+        events.append(
+            create_event(
+                event_type=event_type,
+                category="negative",
+                round_number=match_round,
+                tick=first_kill["tick"],
+                time=format_time_left(game_ticks_to_first_event),
+                importance=importance,
+                title="Провальный entry" if event_type == "failed_entry" else "Ранняя смерть",
+                description="Ты умер первым в раунде и оставил команду в меньшинстве.",
+                data={
+                    "killer": first_kill["attacker_name"],
+                    "victim": first_kill["user_name"],
+                    "demo_round": int(demo_round),
+                }
+            )
+        )
+
+# =========================
+# 8. Averages
+# =========================
+avg_time_first_kill = (
+    sum(first_kill_times) / len(first_kill_times)
+    if first_kill_times else None
+)
+
+avg_time_first_death = (
+    sum(first_death_times) / len(first_death_times)
+    if first_death_times else None
+)
+
+entry_total = entry_kills + entry_deaths
+entry_success = (
+    entry_kills / entry_total * 100
+    if entry_total > 0 else None
+)
+
+# =========================
+# 9. Scoring
+# =========================
+low_impact_score = score_low_impact(
+    kd,
+    entry_kills,
+    entry_deaths,
+    entry_success
+)
+
+early_score = score_early_death(
+    avg_time_first_death,
+    entry_deaths,
+    deaths_count
+)
+
+entry_score = score_entry_success(entry_kills, entry_deaths)
+passive_score = score_passive_play(entry_kills, entry_deaths, avg_time_first_kill)
+hs_score = score_hs(hs_rate)
+
+problems = [
+    {
+        "name": "Низкий Impact",
+        "score": low_impact_score,
+        "description": "Ты редко выигрываешь дуэли и слабо влияешь на ход раундов. При таком K/D ты чаще теряешь преимущество, чем создаёшь его для команды.",
+        "advice": [
+            "Не принимать лишние дуэли без преимущества",
+            "Играть ближе к тиммейтам, чтобы тебя могли разменять",
+            "Выбирать позиции, где легче забрать первый контакт или отойти после него",
+            "Не играть слишком пассивно, если команда уже создаёт пространство"
+        ]
+    },
+    {
+        "name": "Ранние смерти",
+        "score": early_score,
+        "description": "Ты часто умираешь одним из первых в начале раунда, не успевая внести импакт и оставляя команду в меньшинстве.",
+        "advice": [
+            "Не занимать агрессивные позиции без флешек или поддержки тиммейтов",
+            "Играть от информации: не пикать без понимания позиций противника",
+            "Учить базовые тайминги карты",
+            "Улучшать кроссхейр-плейсмент, чтобы выигрывать первые дуэли",
+            "Стараться играть в размен, а не в одиночные выходы"
+        ]
+    },
+    {
+        "name": "Низкий Entry Success",
+        "score": entry_score,
+        "description": "Ты чаще умираешь при попытке сделать первый фраг, чем приносишь команде преимущество.",
+        "advice": [
+            "Не выходить первым без подготовки",
+            "Играть entry только при поддержке тиммейтов",
+            "Избегать очевидных позиций, где тебя ждут",
+            "Тренировать первые выстрелы и кроссхейр-плейсмент"
+        ]
+    },
+    {
+        "name": "Пассивная игра",
+        "score": passive_score,
+        "description": "Ты редко участвуешь в первых контактах и чаще вступаешь в игру на поздних таймингах раунда.",
+        "advice": [
+            "Чаще участвовать в первых разменах вместе с командой",
+            "Использовать флешки и помощь тиммейтов для безопасного выхода",
+            "В отдельных раундах брать инициативу и искать первый контакт"
+        ]
+    },
+    {
+        "name": "Низкий HS%",
+        "score": hs_score,
+        "description": "Ты редко делаешь убийства в голову, это говорит о проблемах с кроссхейр-плейсментом и первыми выстрелами.",
+        "advice": [
+            "Тренировать кроссхейр-плейсмент",
+            "Изучать стандартные позиции противников и заранее наводиться на них",
+            "Играть префаер-карты для закрепления паттернов стрельбы"
+        ]
+    },
+]
+
+top_problems = sorted(problems, key=lambda x: x["score"], reverse=True)
+top_problems = [p for p in top_problems if p["score"] >= 2][:3]
+
+# =========================
+# 10. Stats for report.py
+# =========================
+stats = {
+    "kd": kd,
+    "kills": kills_count,
+    "two_k": two_k,
+    "three_k": three_k,
+    "four_k": four_k,
+    "ace": ace,
+    "multi_kills": multi_kills,
+    "trade_kills": trade_kills_count,
+    "deaths": deaths_count,
+    "hs_rate": hs_rate,
+    "entry_kills": entry_kills,
+    "entry_deaths": entry_deaths,
+    "entry_success": entry_success,
+    "avg_time_first_kill": avg_time_first_kill,
+    "avg_time_first_death": avg_time_first_death,
+    "top_problems": top_problems,
+    "events": events,
+}
+
+# =========================
+# 10.1 Report JSON for frontend
+# =========================
+report_data = {
+    "player": player,
+    "map": map_name,
+    "summary": {
+        "kills": int(kills_count),
+        "deaths": int(deaths_count),
+        "kd": round(float(kd), 2),
+        "hs_rate": round(float(hs_rate) * 100, 1) if hs_rate is not None else None,
+        "entry_kills": int(entry_kills),
+        "entry_deaths": int(entry_deaths),
+        "entry_success": round(float(entry_success), 1) if entry_success is not None else None,
+        "trade_kills": int(trade_kills_count),
+        "multi_kills": int(multi_kills),
+        "two_k": int(two_k),
+        "three_k": int(three_k),
+        "four_k": int(four_k),
+        "ace": int(ace),
+    },
+    "top_problems": top_problems
+}
+
+with open("report.json", "w", encoding="utf-8") as f:
+    json.dump(
+        report_data,
+        f,
+        ensure_ascii=False,
+        indent=2
+    )
+
+print("Frontend report сохранён в report.json")
+
+# =========================
+# 11. Console output
+# =========================
+print("\n==| WATCHDEMO REPORT |==")
+print(f"Player: {player}\n")
+
+print("==| TOP PROBLEMS |==")
+for i, p in enumerate(top_problems, start=1):
+    print(f"{i}. {p['name']} (score: {p['score']})")
+
+print("\n==| COMBAT |==")
+print(f"K/D: {kd:.2f}")
+print(f"Kills: {kills_count}")
+print(f"Deaths: {deaths_count}")
+
+print("\n==| AIM |==")
+if hs_rate is not None:
+    print(f"HS%: {hs_rate * 100:.1f}")
+else:
+    print("HS%: нет данных")
+
+print("\n==| ENTRY |==")
+print(f"Entry kills: {entry_kills}")
+print(f"Entry deaths: {entry_deaths}")
+if entry_success is not None:
+    print(f"Entry success %: {entry_success:.0f}%")
+else:
+    print("Entry success %: нет данных")
+
+print("\n==| TIMING |==")
+if avg_time_first_kill is not None:
+    print(f"Средний тайминг опен-килла: {format_time_left(avg_time_first_kill)}")
+else:
+    print("Среднее время опен-килла: нет данных")
+
+if avg_time_first_death is not None:
+    print(f"Средний тайминг первой смерти: {format_time_left(avg_time_first_death)}")
+else:
+    print("Среднее время первой смерти: нет данных")
+
+print("\n==| EVENTS |==")
+print(f"Events found: {len(events)}")
+
+print("\n==| MULTI-KILLS |==")
+print(f"2K rounds: {two_k}")
+print(f"3K rounds: {three_k}")
+print(f"4K rounds: {four_k}")
+print(f"Ace rounds: {ace}")
+print(f"Multi-kill rounds: {multi_kills}\n")
+
+
+# =========================
+# 12. Save markdown report
+# =========================
+report_text = generate_report(player, stats)
+
+with open("report.md", "w", encoding="utf-8") as f:
+    f.write(report_text)
+
+print("\nОтчёт сохранён в report.md")
+
+radar.export_radar_json(
+    radar_match,
+    timeline_rounds,
+    events
+)
