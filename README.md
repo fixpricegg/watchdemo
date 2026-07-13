@@ -1,69 +1,90 @@
 # WatchDemo
 
-WatchDemo is a web application for analyzing Counter-Strike 2 demo files. Upload a demo, select a player, and inspect match statistics, entry performance, round timing, and player movement on an interactive radar.
+WatchDemo is a web application for analyzing Counter-Strike 2 demo files. It turns a `.dem` file into an interactive browser report with match statistics, player movement, timeline events, and evidence-linked coaching feedback.
 
-> **Status:** active development — early MVP. The core parser, API, report generation, and first radar version are working. The project is not production-ready yet.
+> **Status:** active development, early MVP. The parser, first analysis rules, report generation, interactive radar, Timeline, score tracking, and event navigation are working. The product is not ready for public release yet.
 
-## Why WatchDemo?
+## Product goal
 
-Scoreboards show the result of a match, but they rarely explain how it happened. WatchDemo is being built to turn raw CS2 demos into clear, actionable feedback without requiring players to review every round manually.
-
-The MVP goal is simple:
-
+```text
+Upload a CS2 demo
+        ↓
+Parse the match
+        ↓
+Open a browser report
+        ↓
+Inspect statistics, mistakes, and the exact replay moment
 ```
-Upload a .dem file → process the match → receive a useful browser report
-```
 
-## Implemented
+WatchDemo is intended for competitive players who want to improve but do not want to manually review every round or pay for a personal coach.
+
+## Current functionality
 
 ### Demo parsing
 
-- Round start and round end detection
-- Final score and winning team
-- Player scoreboard statistics
-- Kill and death event extraction
-- Filtering of invalid world deaths
-- Player coordinates across the match
-- Pause-aware round timing
+- Round and match-start detection
+- Kill and death extraction
+- Invalid world-death filtering
+- Pause-aware timing
+- Player positions by tick
+- Dynamic CT/T side detection
+- Round-end winner detection
+- Match score tracking across side switches and overtime
 
-### Player statistics
+### Player analysis
 
-- Kills and deaths
-- K/D ratio
+- Kills, deaths, and K/D
 - Headshot percentage
-- MVPs
-- 3K, 4K, and ace counts
 - Entry kills and entry deaths
 - Entry success rate
-- Average timing of the first opening kill
-- Average timing of the first death
+- Average opening-kill and first-death timing
+- Multi-kill rounds
+- Trade kills
+- Possible missed-trade events
+- Rule-based Top Problems
 
-### Web application
+### Interactive report
 
-- FastAPI endpoint for demo uploads
-- Parsed data returned as JSON
-- Markdown report generation
-- Player selection
-- Interactive round radar
+- React radar playback
 - Alive/dead player states
-- Round playback controls
+- CT/T colors that update after side switches
+- Timeline with round segments
+- Buy and Live phases
+- Round timer
+- Current score
+- Event markers
+- Click-to-jump from an event to the closest replay tick
 
-## In progress
+## Current focus
 
-- A radar closer to the native CS2 look and behavior
-- Smoother and more informative radar playback
-- Score display for each round
-- Hover previews and faster round navigation
-- Better visual design and report layout
-- More reliable handling of edge cases in demos
+The current development phase is **Radar v1** on Inferno.
 
-## Planned MVP
+Next priorities:
 
-- Match summary with ADR, K/D, entry performance, and utility usage
-- Automatic detection of the player's most important mistakes
-- Top five problems ranked by impact
-- One or two concrete round examples with timestamps
-- Clear recommendations that a player can apply in future matches
+1. Bomb carrier, dropped bomb, planted bomb, defuse, and explosion states
+2. Grenade events and trajectories
+3. Better round navigation and player focus
+4. Complete raw user flow from upload to report
+5. Multi-map support
+6. Analysis-quality testing with real demos
+
+See [ROADMAP.md](ROADMAP.md) for the full plan and [WORKFLOW.md](WORKFLOW.md) for the development process.
+
+## Architecture
+
+```text
+CS2 demo (.dem)
+        ↓
+Python + demoparser2
+        ↓
+Deterministic match analysis
+        ↓
+radar.json + report.json
+        ↓
+React report, Radar, and Timeline
+```
+
+The deterministic backend is the source of truth. A future AI layer will explain verified signals, compare matches, and personalize recommendations rather than invent match events.
 
 ## Tech stack
 
@@ -71,36 +92,51 @@ Upload a .dem file → process the match → receive a useful browser report
 | --- | --- |
 | Demo parsing | Python, demoparser2, pandas |
 | Backend | FastAPI, Uvicorn |
-| Frontend | React |
+| Frontend | React, Vite |
 | Data exchange | JSON |
 
-## Architecture
+## Planned repository structure
 
 ```text
-CS2 demo (.dem)
-      ↓
-Python parser
-      ↓
-Structured match data
-      ↓
-FastAPI
-      ↓
-React report and radar
+watchdemo/
+├── backend/
+│   ├── app/
+│   ├── analyzer/
+│   ├── tests/
+│   └── requirements.txt
+├── frontend/
+│   ├── src/
+│   └── package.json
+├── README.md
+├── ROADMAP.md
+├── WORKFLOW.md
+└── .gitignore
 ```
+
+The current local source will be added after the working version is reviewed and sensitive or generated files are excluded.
 
 ## Current limitations
 
-- The analyzer is still under active development.
-- Only part of the planned coaching analysis is implemented.
-- Large radar datasets can take noticeable time to load.
-- The public repository does not yet contain the full application source code or setup instructions.
+- Inferno is the only configured radar map
+- Radar JSON is large and not yet optimized
+- Some analysis rules are still coarse heuristics
+- Missed-trade detection does not yet understand walls, vision, flashes, reloads, or team intent
+- No complete upload-to-report flow is deployed
+- No user accounts or FACEIT integration
+- No automated regression suite yet
 
-## Roadmap
+## Testing strategy
 
-1. Finish the round radar and navigation.
-2. Add remaining core match metrics.
-3. Build the first rule-based mistake detector.
-4. Generate actionable player reports with round evidence.
-5. Improve performance, error handling, and UI.
-6. Prepare a testable public MVP.
+Before public release, the first complete version will be tested with 5–10 external players. The important signals are:
 
+- successful demo-processing rate;
+- correctness of replay state;
+- false-positive rate for detected mistakes;
+- whether users open evidence moments;
+- whether users return to analyze another match.
+
+## Product rule
+
+Do not perfect isolated features before the complete product path works.
+
+Build the first useful WatchDemo, test it, then improve it.
