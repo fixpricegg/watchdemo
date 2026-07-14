@@ -49,3 +49,12 @@ report.md
 logs/
 tmp/
 temp/
+
+# Local debug files
+backend/frame_*.png
+
+# Local working notes
+notes/
+
+# Generated frontend data
+frontend/src/data/

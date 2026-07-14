@@ -1,4 +1,4 @@
-import infernoMap from "../assets/maps/de_inferno_radar.js";
+import infernoMap from "../assets/maps/de_inferno_radar.png";
 import radarData from "../data/radar.json";
 
 function Radar({ tickIndex }) {
