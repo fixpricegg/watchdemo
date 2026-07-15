@@ -47,7 +47,16 @@ def get_game_ticks_between(start_tick, event_tick, live_ticks_df):
 
 def safe_parse_event(parser, event_name):
     try:
-        return parser.parse_event(event_name)
+        result = parser.parse_event(event_name)
+
+        if isinstance(result, pd.DataFrame):
+            return result
+
+        if result is None:
+            return pd.DataFrame()
+
+        return pd.DataFrame(result)
+
     except Exception as e:
         print(f"WARNING: не удалось прочитать event {event_name}: {e}")
         return pd.DataFrame()
@@ -266,6 +275,25 @@ round_starts = parser.parse_event("round_prestart")
 
 round_ends = safe_parse_event(parser, "round_end")
 
+# Core events drive the persistent bomb state. Begin/abort events are retained
+# in radar.json for Timeline/debug, but they do not change that state.
+bomb_event_names = [
+    "bomb_pickup",
+    "bomb_dropped",
+    "bomb_beginplant",
+    "bomb_abortplant",
+    "bomb_planted",
+    "bomb_begindefuse",
+    "bomb_abortdefuse",
+    "bomb_defused",
+    "bomb_exploded",
+]
+
+bomb_event_frames = {
+    event_name: safe_parse_event(parser, event_name)
+    for event_name in bomb_event_names
+}
+
 print("\n== ROUND END DEBUG ==")
 
 if round_ends.empty:
@@ -418,7 +446,10 @@ try:
         "Y",
         "Z",
         "is_alive",
-        "team_num"
+        "team_num",
+        "inventory",
+        "is_bomb_dropped",
+        "is_bomb_planted",
     ])
 except Exception as e:
     print("POSITION PARSE WITH TEAM ERROR:", e)
@@ -431,7 +462,10 @@ except Exception as e:
         "X",
         "Y",
         "Z",
-        "is_alive"
+        "is_alive",
+        "inventory",
+        "is_bomb_dropped",
+        "is_bomb_planted",
     ])
 
     position_df["team_num"] = None
@@ -516,10 +550,17 @@ for timeline_round in timeline_rounds:
 # =========================
 # 5.2 Radar
 # =========================
+round_reset_ticks = [
+    int(timeline_round["freeze_start_tick"])
+    for timeline_round in timeline_rounds
+]
+
 radar_match = radar.build_radar_match(
     position_df,
     map_name,
-    player_info
+    player_info,
+    bomb_event_frames=bomb_event_frames,
+    round_reset_ticks=round_reset_ticks,
 )
 
 # radar.export_radar_json(
