@@ -294,18 +294,6 @@ bomb_event_frames = {
     for event_name in bomb_event_names
 }
 
-print("\n== ROUND END DEBUG ==")
-
-if round_ends.empty:
-    print("round_end пустой")
-else:
-    print("columns:", round_ends.columns.tolist())
-    print(round_ends.head(20).to_string())
-
-if round_starts.empty:
-    print("Не найдены события round_start.")
-    exit()
-
 round_start_clean = (
     round_starts[["tick"]]
     .drop_duplicates()
@@ -352,10 +340,6 @@ else:
 
 # match_round — номер реального раунда для пользователя
 round_live_clean["match_round"] = range(1, len(round_live_clean) + 1)
-
-print("\n== MATCH START DEBUG ==")
-print("match_start_tick:", match_start_tick)
-print(round_live_clean[["demo_round", "match_round", "tick"]].head(10))
 
 # =========================
 # 4. Round intervals только через round_freeze_end
@@ -697,7 +681,7 @@ for missed_trade in missed_trade_events:
 # =========================
 # 6.3 Trade kills
 # =========================
-TRADE_WINDOW_TICKS = 3 * 64
+TRADE_WINDOW_TICKS = 4 * 64
 
 trade_kills_count = 0
 
@@ -718,7 +702,7 @@ for _, kill in player_kills.iterrows():
         (deaths_clean["round"] == kill_round) &
         (deaths_clean["tick"] < kill_tick) &
         (kill_tick - deaths_clean["tick"] <= TRADE_WINDOW_TICKS)
-    ]
+        ].sort_values("tick", ascending=False)
 
     for _, death in recent_deaths.iterrows():
 
@@ -738,13 +722,16 @@ for _, kill in player_kills.iterrows():
         if killer_team == player_team:
             continue
 
-        if dead_teammate_team != player_team:
+        if (
+                pd.isna(kill["user_steamid"])
+                or pd.isna(death["attacker_steamid"])
+        ):
             continue
 
-        if killer_team == player_team:
-            continue
+        killed_enemy_steamid = int(kill["user_steamid"])
+        previous_killer_steamid = int(death["attacker_steamid"])
 
-        if kill["user_steamid"] != death["attacker_steamid"]:
+        if killed_enemy_steamid != previous_killer_steamid:
             continue
 
         events.append(

@@ -531,4 +531,104 @@
         flex-direction: column;
         gap: 10px;
     }
+}.radar-section {
+    width: fit-content;
+    margin: 0 auto;
+}
+
+.radar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.radar-header h2 {
+    margin: 0;
+}
+
+.bomb-status {
+    padding: 6px 10px;
+
+    border: 1px solid #3a414d;
+    border-radius: 7px;
+
+    color: #aeb9ca;
+    background: #181d27;
+
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.bomb-status-carried {
+    color: #f3c85b;
+    border-color: rgba(243, 200, 91, 0.45);
+}
+
+.bomb-status-dropped {
+    color: #ffb347;
+    border-color: rgba(255, 179, 71, 0.45);
+}
+
+.bomb-status-planted {
+    color: #ff6961;
+    border-color: rgba(255, 105, 97, 0.55);
+}
+
+.bomb-status-defused {
+    color: #4da6ff;
+    border-color: rgba(77, 166, 255, 0.45);
+}
+
+.bomb-status-exploded {
+    color: #ff5a5a;
+    border-color: rgba(255, 90, 90, 0.55);
+}
+
+.bomb-marker {
+    position: absolute;
+    z-index: 20;
+
+    min-width: 22px;
+    height: 15px;
+    padding: 0 3px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    transform: translate(8px, -18px);
+
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    border-radius: 3px;
+
+    color: #171717;
+    background: #f3c85b;
+
+    font-size: 9px;
+    font-weight: 900;
+    line-height: 1;
+
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+    pointer-events: none;
+}
+
+.bomb-marker-dropped {
+    background: #ffb347;
+    border-style: dashed;
+}
+
+.bomb-marker-planted {
+    background: #ff6961;
+    color: #ffffff;
+}
+
+.bomb-marker-defused {
+    background: #4da6ff;
+    color: #ffffff;
+}
+
+.bomb-marker-exploded {
+    background: #ff5a5a;
+    color: #ffffff;
 }

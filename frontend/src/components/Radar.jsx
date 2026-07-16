@@ -4,15 +4,95 @@ import radarData from "../data/radar.json";
 function Radar({ tickIndex }) {
     const players = Object.values(radarData.players);
 
+    const currentTick =
+        players[0]?.positions?.[tickIndex]?.tick ?? null;
+
+    const bombStates =
+        radarData.bomb?.states ?? [];
+
+    let bombState = null;
+
+    if (currentTick !== null) {
+        for (const state of bombStates) {
+            if (state.tick <= currentTick) {
+                bombState = state;
+            } else {
+                break;
+            }
+        }
+    }
+
     const mapInfo = {
         pos_x: -2087,
         pos_y: 3870,
         scale: 4.9,
     };
 
+    const toImageCoordinates = (x, y) => {
+        return {
+            imageX: (x - mapInfo.pos_x) / mapInfo.scale,
+            imageY: (mapInfo.pos_y - y) / mapInfo.scale,
+        };
+    };
+
+    const getBombStatusText = () => {
+        if (!bombState) {
+            return "Bomb unavailable";
+        }
+
+        switch (bombState.state) {
+            case "carried":
+                return bombState.carrier_name
+                    ? `C4 · ${bombState.carrier_name}`
+                    : "C4 carried";
+
+            case "dropped":
+                return "C4 dropped";
+
+            case "planted":
+                return bombState.site
+                    ? `Bomb planted · Site ${bombState.site}`
+                    : "Bomb planted";
+
+            case "defused":
+                return "Bomb defused";
+
+            case "exploded":
+                return "Bomb exploded";
+
+            default:
+                return "Bomb unavailable";
+        }
+    };
+
+    const drawableBombStates = [
+        "carried",
+        "dropped",
+        "planted",
+        "defused",
+        "exploded",
+    ];
+
+    const canDrawBomb =
+        drawableBombStates.includes(bombState?.state) &&
+        bombState.x !== null &&
+        bombState.y !== null;
+
+    const bombCoordinates = canDrawBomb
+        ? toImageCoordinates(bombState.x, bombState.y)
+        : null;
+
     return (
-        <section>
-            <h2>Radar</h2>
+        <section className="radar-section">
+            <div className="radar-header">
+                <h2>Radar</h2>
+
+                <div
+                    className={`bomb-status bomb-status-${bombState?.state ?? "unavailable"}`}
+                >
+                    {getBombStatusText()}
+                </div>
+            </div>
 
             <div className="radar-container">
                 <img
@@ -26,14 +106,13 @@ function Radar({ tickIndex }) {
 
                     if (!pos) return null;
 
-                    const imageX =
-                        (pos.x - mapInfo.pos_x) / mapInfo.scale;
-
-                    const imageY =
-                        (mapInfo.pos_y - pos.y) / mapInfo.scale;
+                    const { imageX, imageY } =
+                        toImageCoordinates(pos.x, pos.y);
 
                     const team = pos.team || player.team;
-                    const aliveClass = pos.is_alive ? "alive-dot" : "dead-dot";
+                    const aliveClass = pos.is_alive
+                        ? "alive-dot"
+                        : "dead-dot";
 
                     return (
                         <div
@@ -50,9 +129,26 @@ function Radar({ tickIndex }) {
                                 left: `${imageX}px`,
                                 top: `${imageY}px`,
                             }}
-                        ></div>
+                        />
                     );
                 })}
+
+                {canDrawBomb && (
+                    <div
+                        className={`bomb-marker bomb-marker-${bombState.state}`}
+                        title={`${getBombStatusText()} · ${
+                            bombState.position_accuracy === "carrier_position"
+                                ? "Exact position"
+                                : "Approximate position"
+                        }`}
+                        style={{
+                            left: `${bombCoordinates.imageX}px`,
+                            top: `${bombCoordinates.imageY}px`,
+                        }}
+                    >
+                        C4
+                    </div>
+                )}
             </div>
         </section>
     );

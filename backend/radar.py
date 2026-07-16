@@ -274,6 +274,47 @@ def _find_carrier_row(tick_rows, preferred_steamid=None):
 
     return carrier_rows.iloc[0]
 
+def _find_event_player_position(
+    sampled_position_df,
+    event_tick,
+    player_steamid=None,
+    player_name=None,
+):
+    rows = sampled_position_df
+
+    if player_steamid is not None and "steamid" in rows.columns:
+        rows = rows[
+            rows["steamid"].apply(_safe_int)
+            == int(player_steamid)
+        ]
+    elif player_name is not None and "name" in rows.columns:
+        rows = rows[
+            rows["name"] == player_name
+        ]
+    else:
+        return None
+
+    if rows.empty:
+        return None
+
+    rows = rows.copy()
+    rows["tick_distance"] = (
+        rows["tick"].astype(int) - int(event_tick)
+    ).abs()
+
+    rows = rows.sort_values(
+        ["tick_distance", "tick"]
+    )
+
+    closest_row = rows.iloc[0]
+
+    # У нас radar sample каждые 8 тиков.
+    # Больше 16 тиков уже подозрительно далеко от события.
+    if int(closest_row["tick_distance"]) > RADAR_TICK_STEP * 2:
+        return None
+
+    return closest_row
+
 
 def build_bomb_timeline(
     sampled_position_df,
@@ -303,6 +344,10 @@ def build_bomb_timeline(
         "carrier_steamid": None,
         "carrier_name": None,
         "site": None,
+        "x": None,
+        "y": None,
+        "z": None,
+        "position_accuracy": "unknown",
         "source": "initial",
     }
 
@@ -317,6 +362,22 @@ def build_bomb_timeline(
             event_name = event["event"]
             event_tick = int(event["tick"])
 
+            event_player_row = _find_event_player_position(
+                sampled_position_df,
+                event_tick=event_tick,
+                player_steamid=event.get("player_steamid"),
+                player_name=event.get("player_name"),
+            )
+
+            event_x = None
+            event_y = None
+            event_z = None
+
+            if event_player_row is not None:
+                event_x = _safe_float(event_player_row.get("X"))
+                event_y = _safe_float(event_player_row.get("Y"))
+                event_z = _safe_float(event_player_row.get("Z"))
+
             if event_name == "round_reset":
                 current = {
                     "state": "unavailable",
@@ -324,36 +385,116 @@ def build_bomb_timeline(
                     "carrier_steamid": None,
                     "carrier_name": None,
                     "site": None,
+                    "x": None,
+                    "y": None,
+                    "z": None,
+                    "position_accuracy": "unknown",
                     "source": "round_reset",
                 }
 
-            elif event_name == "bomb_dropped" and current["state"] not in LOCKED_BOMB_STATES:
+
+            elif (
+                    event_name == "bomb_dropped"
+                    and current["state"] not in LOCKED_BOMB_STATES
+
+            ):
+
                 current.update({
+
                     "state": "dropped",
+
                     "state_since_tick": event_tick,
+
                     "carrier_steamid": None,
+
                     "carrier_name": None,
+
+                    "x": event_x,
+
+                    "y": event_y,
+
+                    "z": event_z,
+
+                    "position_accuracy": (
+
+                        "event_player_position"
+
+                        if event_x is not None and event_y is not None
+
+                        else "unknown"
+
+                    ),
+
                     "source": "bomb_dropped",
+
                 })
 
-            elif event_name == "bomb_pickup" and current["state"] not in LOCKED_BOMB_STATES:
+
+            elif (
+
+                    event_name == "bomb_pickup"
+
+                    and current["state"] not in LOCKED_BOMB_STATES
+
+            ):
+
                 current.update({
+
                     "state": "carried",
+
                     "state_since_tick": event_tick,
+
                     "carrier_steamid": event.get("player_steamid"),
+
                     "carrier_name": event.get("player_name"),
+
                     "site": None,
+
+                    "x": None,
+
+                    "y": None,
+
+                    "z": None,
+
+                    "position_accuracy": "unknown",
+
                     "source": "bomb_pickup",
+
                 })
+
 
             elif event_name == "bomb_planted":
+
                 current.update({
+
                     "state": "planted",
+
                     "state_since_tick": event_tick,
+
                     "carrier_steamid": None,
+
                     "carrier_name": None,
+
                     "site": event.get("site"),
+
+                    "x": event_x,
+
+                    "y": event_y,
+
+                    "z": event_z,
+
+                    "position_accuracy": (
+
+                        "event_player_position"
+
+                        if event_x is not None and event_y is not None
+
+                        else "unknown"
+
+                    ),
+
                     "source": "bomb_planted",
+
                 })
 
             elif event_name == "bomb_defused":
@@ -424,8 +565,13 @@ def build_bomb_timeline(
                     "carrier_name": None,
                 })
 
-        x = y = z = None
-        position_accuracy = "unknown"
+        x = current.get("x")
+        y = current.get("y")
+        z = current.get("z")
+        position_accuracy = current.get(
+            "position_accuracy",
+            "unknown",
+        )
 
         if current["state"] == "carried":
             # Re-check inventory first; if unavailable, use the event carrier row.
@@ -444,6 +590,10 @@ def build_bomb_timeline(
                 y = _safe_float(carrier_row.get("Y"))
                 z = _safe_float(carrier_row.get("Z"))
                 position_accuracy = "carrier_position"
+                current["x"] = x
+                current["y"] = y
+                current["z"] = z
+                current["position_accuracy"] = "carrier_position"
 
         states.append(
             create_bomb_state(
