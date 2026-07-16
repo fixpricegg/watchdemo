@@ -47,7 +47,16 @@ def get_game_ticks_between(start_tick, event_tick, live_ticks_df):
 
 def safe_parse_event(parser, event_name):
     try:
-        return parser.parse_event(event_name)
+        result = parser.parse_event(event_name)
+
+        if isinstance(result, pd.DataFrame):
+            return result
+
+        if result is None:
+            return pd.DataFrame()
+
+        return pd.DataFrame(result)
+
     except Exception as e:
         print(f"WARNING: не удалось прочитать event {event_name}: {e}")
         return pd.DataFrame()
@@ -266,17 +275,24 @@ round_starts = parser.parse_event("round_prestart")
 
 round_ends = safe_parse_event(parser, "round_end")
 
-print("\n== ROUND END DEBUG ==")
+# Core events drive the persistent bomb state. Begin/abort events are retained
+# in radar.json for Timeline/debug, but they do not change that state.
+bomb_event_names = [
+    "bomb_pickup",
+    "bomb_dropped",
+    "bomb_beginplant",
+    "bomb_abortplant",
+    "bomb_planted",
+    "bomb_begindefuse",
+    "bomb_abortdefuse",
+    "bomb_defused",
+    "bomb_exploded",
+]
 
-if round_ends.empty:
-    print("round_end пустой")
-else:
-    print("columns:", round_ends.columns.tolist())
-    print(round_ends.head(20).to_string())
-
-if round_starts.empty:
-    print("Не найдены события round_start.")
-    exit()
+bomb_event_frames = {
+    event_name: safe_parse_event(parser, event_name)
+    for event_name in bomb_event_names
+}
 
 round_start_clean = (
     round_starts[["tick"]]
@@ -324,10 +340,6 @@ else:
 
 # match_round — номер реального раунда для пользователя
 round_live_clean["match_round"] = range(1, len(round_live_clean) + 1)
-
-print("\n== MATCH START DEBUG ==")
-print("match_start_tick:", match_start_tick)
-print(round_live_clean[["demo_round", "match_round", "tick"]].head(10))
 
 # =========================
 # 4. Round intervals только через round_freeze_end
@@ -418,7 +430,10 @@ try:
         "Y",
         "Z",
         "is_alive",
-        "team_num"
+        "team_num",
+        "inventory",
+        "is_bomb_dropped",
+        "is_bomb_planted",
     ])
 except Exception as e:
     print("POSITION PARSE WITH TEAM ERROR:", e)
@@ -431,7 +446,10 @@ except Exception as e:
         "X",
         "Y",
         "Z",
-        "is_alive"
+        "is_alive",
+        "inventory",
+        "is_bomb_dropped",
+        "is_bomb_planted",
     ])
 
     position_df["team_num"] = None
@@ -516,10 +534,17 @@ for timeline_round in timeline_rounds:
 # =========================
 # 5.2 Radar
 # =========================
+round_reset_ticks = [
+    int(timeline_round["freeze_start_tick"])
+    for timeline_round in timeline_rounds
+]
+
 radar_match = radar.build_radar_match(
     position_df,
     map_name,
-    player_info
+    player_info,
+    bomb_event_frames=bomb_event_frames,
+    round_reset_ticks=round_reset_ticks,
 )
 
 # radar.export_radar_json(
@@ -656,7 +681,7 @@ for missed_trade in missed_trade_events:
 # =========================
 # 6.3 Trade kills
 # =========================
-TRADE_WINDOW_TICKS = 3 * 64
+TRADE_WINDOW_TICKS = 4 * 64
 
 trade_kills_count = 0
 
@@ -677,7 +702,7 @@ for _, kill in player_kills.iterrows():
         (deaths_clean["round"] == kill_round) &
         (deaths_clean["tick"] < kill_tick) &
         (kill_tick - deaths_clean["tick"] <= TRADE_WINDOW_TICKS)
-    ]
+        ].sort_values("tick", ascending=False)
 
     for _, death in recent_deaths.iterrows():
 
@@ -697,13 +722,16 @@ for _, kill in player_kills.iterrows():
         if killer_team == player_team:
             continue
 
-        if dead_teammate_team != player_team:
+        if (
+                pd.isna(kill["user_steamid"])
+                or pd.isna(death["attacker_steamid"])
+        ):
             continue
 
-        if killer_team == player_team:
-            continue
+        killed_enemy_steamid = int(kill["user_steamid"])
+        previous_killer_steamid = int(death["attacker_steamid"])
 
-        if kill["user_steamid"] != death["attacker_steamid"]:
+        if killed_enemy_steamid != previous_killer_steamid:
             continue
 
         events.append(
