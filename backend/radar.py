@@ -110,6 +110,7 @@ def create_radar_match(map_name):
             "states": [],
             "events": [],
         },
+        "grenades": [],
     }
 
 
@@ -614,14 +615,290 @@ def build_bomb_timeline(
     return states, events
 
 
+GRENADE_TYPE_MAP = {
+    "CSmokeGrenadeProjectile": "smoke",
+    "CFlashbangProjectile": "flash",
+    "CHEGrenadeProjectile": "he",
+    "CMolotovProjectile": "molotov",
+    "CDecoyProjectile": "decoy",
+}
+
+GRENADE_EVENT_CONFIG = {
+    "flash": {
+        "detonate": "flashbang_detonate",
+    },
+    "he": {
+        "detonate": "hegrenade_detonate",
+    },
+    "smoke": {
+        "detonate": "smokegrenade_detonate",
+        "expire": "smokegrenade_expired",
+    },
+    "molotov": {
+        "detonate": "molotov_detonate",
+        "expire": "inferno_expire",
+    },
+    "decoy": {
+        "detonate": "decoy_started",
+        "expire": "decoy_detonate",
+    },
+}
+
+
+def _find_matching_grenade_event(
+    event_df,
+    thrower_steamid,
+    target_tick,
+    min_tick=None,
+    max_tick_gap=512,
+):
+    if (
+        event_df is None
+        or not isinstance(event_df, pd.DataFrame)
+        or event_df.empty
+        or "tick" not in event_df.columns
+    ):
+        return None
+
+    candidates = event_df.copy()
+
+    if thrower_steamid is not None and "user_steamid" in candidates.columns:
+        candidates = candidates[
+            candidates["user_steamid"].apply(_safe_int)
+            == int(thrower_steamid)
+        ]
+
+    if min_tick is not None:
+        candidates = candidates[
+            candidates["tick"].astype(int) >= int(min_tick)
+        ]
+
+    if candidates.empty:
+        return None
+
+    candidates = candidates.copy()
+    candidates["tick_distance"] = (
+        candidates["tick"].astype(int) - int(target_tick)
+    ).abs()
+
+    candidates = candidates.sort_values(
+        ["tick_distance", "tick"]
+    )
+
+    closest = candidates.iloc[0]
+
+    if int(closest["tick_distance"]) > max_tick_gap:
+        return None
+
+    return closest
+
+
+def build_grenade_tracks(
+    grenade_df,
+    grenade_event_frames=None,
+):
+    if grenade_df is None or grenade_df.empty:
+        return []
+
+    required_columns = {
+        "grenade_type",
+        "grenade_entity_id",
+        "x",
+        "y",
+        "z",
+        "tick",
+    }
+
+    if not required_columns.issubset(grenade_df.columns):
+        return []
+
+    valid = grenade_df.dropna(
+        subset=[
+            "grenade_entity_id",
+            "grenade_type",
+            "x",
+            "y",
+            "z",
+            "tick",
+        ]
+    ).copy()
+
+    if valid.empty:
+        return []
+
+    valid["tick"] = valid["tick"].astype(int)
+    valid["grenade_entity_id"] = valid["grenade_entity_id"].astype(int)
+
+    tracks = []
+
+    group_columns = [
+        "grenade_entity_id",
+        "grenade_type",
+    ]
+
+    grenade_event_frames = grenade_event_frames or {}
+
+    for group_key, entity_group in valid.groupby(
+            group_columns,
+            sort=False,
+    ):
+        entity_id, raw_type = group_key
+
+        entity_group = (
+            entity_group
+            .sort_values("tick")
+            .reset_index(drop=True)
+        )
+
+        entity_group["tick_gap"] = (
+            entity_group["tick"]
+            .diff()
+            .fillna(1)
+        )
+
+        entity_group["track_segment"] = (
+                entity_group["tick_gap"] > 2
+        ).cumsum()
+
+        for _, group in entity_group.groupby(
+                "track_segment",
+                sort=False,
+        ):
+            grenade_type = GRENADE_TYPE_MAP.get(str(raw_type))
+
+            if grenade_type is None:
+                continue
+
+            group = group.sort_values("tick").reset_index(drop=True)
+
+            sampled = group.iloc[::RADAR_TICK_STEP].copy()
+
+            if (
+                    sampled.empty
+                    or sampled.iloc[-1]["tick"] != group.iloc[-1]["tick"]
+            ):
+                sampled = pd.concat(
+                    [sampled, group.iloc[[-1]]],
+                    ignore_index=True,
+                )
+
+            first_row = group.iloc[0]
+            last_row = group.iloc[-1]
+
+            steamid = _safe_int(first_row.get("steamid"))
+            thrower_name = _python_value(first_row.get("name"))
+
+            positions = []
+
+            for _, row in sampled.iterrows():
+                positions.append({
+                    "tick": int(row["tick"]),
+                    "x": round(float(row["x"])),
+                    "y": round(float(row["y"])),
+                    "z": round(float(row["z"])),
+                })
+
+            start_tick = int(first_row["tick"])
+            end_tick = int(last_row["tick"])
+
+            event_config = GRENADE_EVENT_CONFIG.get(
+                grenade_type,
+                {},
+            )
+
+            detonate_event_name = event_config.get("detonate")
+            expire_event_name = event_config.get("expire")
+
+            detonate_row = None
+            expire_row = None
+
+            if detonate_event_name:
+                detonate_row = _find_matching_grenade_event(
+                    grenade_event_frames.get(detonate_event_name),
+                    thrower_steamid=steamid,
+                    target_tick=end_tick,
+                    min_tick=start_tick,
+                )
+
+            detonate_tick = (
+                int(detonate_row["tick"])
+                if detonate_row is not None
+                else end_tick
+            )
+
+            if expire_event_name:
+                expire_row = _find_matching_grenade_event(
+                    grenade_event_frames.get(expire_event_name),
+                    thrower_steamid=steamid,
+                    target_tick=detonate_tick,
+                    min_tick=detonate_tick,
+                    max_tick_gap=64 * 30,
+                )
+
+            effect_end_tick = (
+                int(expire_row["tick"])
+                if expire_row is not None
+                else detonate_tick
+            )
+
+            effect_x = None
+            effect_y = None
+            effect_z = None
+
+            if detonate_row is not None:
+                effect_x = _safe_float(detonate_row.get("x"))
+                effect_y = _safe_float(detonate_row.get("y"))
+                effect_z = _safe_float(detonate_row.get("z"))
+
+            tracks.append({
+                "track_id": f"{int(entity_id)}-{start_tick}",
+                "entity_id": int(entity_id),
+                "type": grenade_type,
+                "raw_type": str(raw_type),
+                "thrower_steamid": steamid,
+                "thrower_name": thrower_name,
+
+                "start_tick": start_tick,
+                "projectile_end_tick": detonate_tick,
+
+                "effect_start_tick": detonate_tick,
+                "effect_end_tick": effect_end_tick,
+
+                "effect_x": (
+                    round(effect_x)
+                    if effect_x is not None
+                    else positions[-1]["x"]
+                ),
+                "effect_y": (
+                    round(effect_y)
+                    if effect_y is not None
+                    else positions[-1]["y"]
+                ),
+                "effect_z": (
+                    round(effect_z)
+                    if effect_z is not None
+                    else positions[-1]["z"]
+                ),
+
+                "positions": positions,
+            })
+
+    return tracks
+
 def build_radar_match(
     position_df,
     map_name,
     player_info,
     bomb_event_frames=None,
     round_reset_ticks=None,
+    grenade_df=None,
+    grenade_event_frames=None,
 ):
     radar_match = create_radar_match(map_name)
+    radar_match["grenades"] = build_grenade_tracks(
+        grenade_df,
+        grenade_event_frames=grenade_event_frames,
+    )
 
     team_by_steamid = {
         int(row["steamid"]): int(row["team_number"])

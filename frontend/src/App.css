@@ -632,3 +632,49 @@
     background: #ff5a5a;
     color: #ffffff;
 }
+
+.grenade-marker {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    z-index: 5;
+
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 5px;
+    border: 1px solid rgba(255, 255, 255, 0.75);
+
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+
+    color: #ffffff;
+    box-sizing: border-box;
+    pointer-events: none;
+}
+
+.grenade-marker-smoke {
+    background: #7d8790;
+}
+
+.grenade-marker-flash {
+    background: #f3f3f3;
+    color: #111111;
+}
+
+.grenade-marker-he {
+    background: #d9534f;
+}
+
+.grenade-marker-molotov {
+    background: #ff7a1a;
+}
+
+.grenade-marker-decoy {
+    background: #9b59b6;
+}
