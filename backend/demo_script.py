@@ -294,6 +294,32 @@ bomb_event_frames = {
     for event_name in bomb_event_names
 }
 
+try:
+    grenade_df = parser.parse_grenades()
+    grenade_event_names = [
+        "flashbang_detonate",
+        "hegrenade_detonate",
+        "smokegrenade_detonate",
+        "smokegrenade_expired",
+        "molotov_detonate",
+        "inferno_startburn",
+        "inferno_expire",
+        "decoy_started",
+        "decoy_detonate",
+    ]
+
+    grenade_event_frames = {
+        event_name: safe_parse_event(parser, event_name)
+        for event_name in grenade_event_names
+    }
+
+    if not isinstance(grenade_df, pd.DataFrame):
+        grenade_df = pd.DataFrame(grenade_df)
+
+except Exception as e:
+    print("WARNING: не удалось прочитать гранаты:", e)
+    grenade_df = pd.DataFrame()
+
 round_start_clean = (
     round_starts[["tick"]]
     .drop_duplicates()
@@ -545,6 +571,8 @@ radar_match = radar.build_radar_match(
     player_info,
     bomb_event_frames=bomb_event_frames,
     round_reset_ticks=round_reset_ticks,
+    grenade_df=grenade_df,
+    grenade_event_frames=grenade_event_frames,
 )
 
 # radar.export_radar_json(

@@ -65,6 +65,60 @@ function Radar({ tickIndex }) {
         }
     };
 
+    const grenadeTracks = radarData.grenades ?? [];
+
+    const activeGrenades = grenadeTracks
+        .map((grenade) => {
+            if (currentTick === null) {
+                return null;
+            }
+
+            const isProjectile =
+                currentTick >= grenade.start_tick &&
+                currentTick <= grenade.projectile_end_tick;
+
+            const isEffect =
+                currentTick >= grenade.effect_start_tick &&
+                currentTick <= grenade.effect_end_tick;
+
+            if (!isProjectile && !isEffect) {
+                return null;
+            }
+
+            if (isProjectile) {
+                let currentPosition = null;
+
+                for (const position of grenade.positions) {
+                    if (position.tick <= currentTick) {
+                        currentPosition = position;
+                    } else {
+                        break;
+                    }
+                }
+
+                if (!currentPosition) {
+                    return null;
+                }
+
+                return {
+                    ...grenade,
+                    phase: "projectile",
+                    currentPosition,
+                };
+            }
+
+            return {
+                ...grenade,
+                phase: "effect",
+                currentPosition: {
+                    x: grenade.effect_x,
+                    y: grenade.effect_y,
+                    z: grenade.effect_z,
+                },
+            };
+        })
+        .filter(Boolean);
+
     const drawableBombStates = [
         "carried",
         "dropped",
@@ -130,6 +184,43 @@ function Radar({ tickIndex }) {
                                 top: `${imageY}px`,
                             }}
                         />
+                    );
+                })}
+
+                {activeGrenades.map((grenade) => {
+                    const { imageX, imageY } = toImageCoordinates(
+                        grenade.currentPosition.x,
+                        grenade.currentPosition.y
+                    );
+
+                    return (
+                        <div
+                            key={`grenade-${grenade.track_id}`}
+                            className={`grenade-marker grenade-marker-${grenade.type} grenade-marker-${grenade.phase}`}
+                            title={`${grenade.type} · ${grenade.thrower_name ?? "Unknown"}`}
+                            style={{
+                                left: `${imageX}px`,
+                                top: `${imageY}px`,
+                            }}
+                        >
+                        {grenade.phase === "projectile" && (
+                            <>
+                                {grenade.type === "smoke" && "S"}
+                                {grenade.type === "flash" && "F"}
+                                {grenade.type === "he" && "HE"}
+                                {grenade.type === "molotov" && "M"}
+                                {grenade.type === "decoy" && "D"}
+                            </>
+                        )}
+
+                        {grenade.phase === "effect" && (
+                            <>
+                                {grenade.type === "smoke" && "SM"}
+                                {grenade.type === "molotov" && "FIRE"}
+                                {grenade.type === "decoy" && "D"}
+                            </>
+                        )}
+                        </div>
                     );
                 })}
 
