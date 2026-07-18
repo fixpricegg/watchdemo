@@ -93,16 +93,43 @@ def get_player_team(steamid, team_by_steamid):
 
 
 def get_match_start_tick(parser):
-    candidate_ticks = []
+    begin_new_match = safe_parse_event(
+        parser,
+        "begin_new_match"
+    )
 
-    for event_name in ["begin_new_match", "round_announce_match_start"]:
-        df = safe_parse_event(parser, event_name)
+    if (
+        not begin_new_match.empty
+        and "tick" in begin_new_match.columns
+    ):
+        ticks = (
+            begin_new_match["tick"]
+            .dropna()
+            .astype(int)
+            .tolist()
+        )
 
-        if not df.empty and "tick" in df.columns:
-            candidate_ticks.extend(df["tick"].dropna().astype(int).tolist())
+        if ticks:
+            return max(ticks)
 
-    if candidate_ticks:
-        return max(candidate_ticks)
+    announce_match_start = safe_parse_event(
+        parser,
+        "round_announce_match_start"
+    )
+
+    if (
+        not announce_match_start.empty
+        and "tick" in announce_match_start.columns
+    ):
+        ticks = (
+            announce_match_start["tick"]
+            .dropna()
+            .astype(int)
+            .tolist()
+        )
+
+        if ticks:
+            return max(ticks)
 
     return None
 
@@ -182,7 +209,7 @@ def score_hs(hs_rate):
         return 0
 
 
-demo_path = "demos/match12.dem"
+demo_path = "demos/match13.dem"
 player = "k1tagawaaa"
 
 parser = DemoParser(demo_path)
@@ -320,108 +347,110 @@ except Exception as e:
     print("WARNING: не удалось прочитать гранаты:", e)
     grenade_df = pd.DataFrame()
 
-round_start_clean = (
-    round_starts[["tick"]]
+# =========================
+# 3.1 Реальное начало матча
+# =========================
+match_marker_tick = get_match_start_tick(parser)
+
+prestart_ticks = (
+    round_starts["tick"]
+    .dropna()
+    .astype(int)
     .drop_duplicates()
-    .reset_index(drop=True)
+    .sort_values()
+    .tolist()
 )
 
-round_start_clean["round"] = range(
-    1,
-    len(round_start_clean) + 1
+freeze_end_ticks = (
+    round_live_starts["tick"]
+    .dropna()
+    .astype(int)
+    .drop_duplicates()
+    .sort_values()
+    .tolist()
 )
 
-round_start_clean = round_start_clean[["round", "tick"]]
+if match_marker_tick is not None:
+    # Служебные prestart до последнего match-start нам не нужны.
+    MATCH_START_TOLERANCE_TICKS = 64
 
-
-round_live_clean = round_live_starts.reset_index(drop=True)
-
-if "round" in round_live_clean.columns:
-    round_live_clean = round_live_clean.groupby("round", as_index=False)["tick"].max()
+    real_prestart_ticks = [
+        tick
+        for tick in prestart_ticks
+        if tick >= match_marker_tick - MATCH_START_TOLERANCE_TICKS
+    ]
 else:
-    round_live_clean = round_live_clean[["tick"]].copy()
-    round_live_clean["round"] = range(1, len(round_live_clean) + 1)
-    round_live_clean = round_live_clean[["round", "tick"]]
+    print(
+        "WARNING: match_start_tick не найден. "
+        "Использую все round_prestart."
+    )
+    real_prestart_ticks = prestart_ticks
 
-# =========================
-# 3.1 Находим начало реального матча
-# Фильтруем всё, что было до begin_new_match / round_announce_match_start
-# =========================
-match_start_tick = get_match_start_tick(parser)
-
-if match_start_tick is not None:
-    round_live_clean = round_live_clean[
-        round_live_clean["tick"] >= match_start_tick
-    ].copy()
-else:
-    print("WARNING: match_start_tick не найден. Технические раунды могут попасть в анализ.")
-
-round_live_clean = round_live_clean.reset_index(drop=True)
-
-# demo_round — технический номер в демке
-if "round" in round_live_clean.columns:
-    round_live_clean["demo_round"] = round_live_clean["round"].astype(int)
-else:
-    round_live_clean["demo_round"] = range(1, len(round_live_clean) + 1)
-
-# match_round — номер реального раунда для пользователя
-round_live_clean["match_round"] = range(1, len(round_live_clean) + 1)
-
-# =========================
-# 4. Round intervals только через round_freeze_end
-# =========================
-round_intervals = []
-live_start_ticks = round_live_clean["tick"].tolist()
-
-for i in range(len(round_live_clean)):
-    start_tick = int(round_live_clean.iloc[i]["tick"])
-    match_round = int(round_live_clean.iloc[i]["match_round"])
-    demo_round = int(round_live_clean.iloc[i]["demo_round"])
-
-    if i < len(round_live_clean) - 1:
-        end_tick = int(round_live_clean.iloc[i + 1]["tick"])
-    else:
-        end_tick = int(match_end_tick) + 1
-
-    round_intervals.append((match_round, demo_round, start_tick, end_tick))
-
-# =========================
-# 4.1 Timeline rounds
-# =========================
-timeline_rounds = []
-
-for i in range(len(round_live_clean)):
-    match_round = int(round_live_clean.iloc[i]["match_round"])
-    demo_round = int(round_live_clean.iloc[i]["demo_round"])
-
-    freeze_start_tick = int(
-        round_start_clean.iloc[demo_round - 1]["tick"]
+if not real_prestart_ticks:
+    raise RuntimeError(
+        "Не удалось найти round_prestart после начала матча."
     )
 
-    live_start_tick = int(
-        round_live_clean.iloc[i]["tick"]
-    )
+# =========================
+# 4. Собираем раунды хронологически
+# prestart -> ближайший freeze_end -> следующий prestart
+# =========================
+round_pairs = []
 
-    if i < len(round_live_clean) - 1:
-        next_demo_round = int(
-            round_live_clean.iloc[i + 1]["demo_round"]
-        )
-
-        end_tick = int(
-            round_start_clean.iloc[next_demo_round - 1]["tick"]
-        )
+for index, freeze_start_tick in enumerate(real_prestart_ticks):
+    if index < len(real_prestart_ticks) - 1:
+        next_freeze_start_tick = real_prestart_ticks[index + 1]
     else:
-        end_tick = int(match_end_tick) + 1
+        next_freeze_start_tick = int(match_end_tick) + 1
 
-    timeline_rounds.append({
-        "round": match_round,
-        "freeze_start_tick": freeze_start_tick,
-        "live_start_tick": live_start_tick,
-        "end_tick": end_tick
+    live_candidates = [
+        tick
+        for tick in freeze_end_ticks
+        if freeze_start_tick < tick < next_freeze_start_tick
+    ]
+
+    if not live_candidates:
+        continue
+
+    live_start_tick = live_candidates[0]
+
+    round_pairs.append({
+        "round": len(round_pairs) + 1,
+        "demo_round": len(round_pairs) + 1,
+        "freeze_start_tick": int(freeze_start_tick),
+        "live_start_tick": int(live_start_tick),
+        "end_tick": int(next_freeze_start_tick),
     })
 
+if not round_pairs:
+    raise RuntimeError(
+        "Не удалось сопоставить round_prestart и round_freeze_end."
+    )
+
+timeline_rounds = round_pairs
+
+round_intervals = [
+    (
+        int(round_data["round"]),
+        int(round_data["demo_round"]),
+        int(round_data["live_start_tick"]),
+        int(round_data["end_tick"]),
+    )
+    for round_data in timeline_rounds
+]
+
+print("\n== ROUND PAIRS DEBUG ==")
+
+for round_data in timeline_rounds[:5]:
+    print(
+        f"R{round_data['round']} | "
+        f"freeze={round_data['freeze_start_tick']} | "
+        f"live={round_data['live_start_tick']} | "
+        f"end={round_data['end_tick']}"
+    )
+
 # =========================
-# 5. Deaths inside live rounds
+# 4. Deaths inside live rounds
 # =========================
 clean_deaths_list = []
 
@@ -445,7 +474,7 @@ if deaths_clean.empty:
     exit()
 
 # =========================
-# 5.1 Positions
+# 4.1 Positions
 # =========================
 try:
     position_df = parser.parse_ticks([
@@ -481,7 +510,7 @@ except Exception as e:
     position_df["team_num"] = None
 
 # =========================
-# 5.1.1 Timeline score
+# 4.1.1 Timeline score
 # =========================
 player_team_rows = (
     position_df[
@@ -558,7 +587,7 @@ for timeline_round in timeline_rounds:
         enemy_team_score += 1
 
 # =========================
-# 5.2 Radar
+# 4.2 Radar
 # =========================
 round_reset_ticks = [
     int(timeline_round["freeze_start_tick"])
@@ -602,7 +631,7 @@ test_tick = 100000
 
 
 # =========================
-# 6. Player stats
+# 5. Player stats
 # =========================
 events = []
 
@@ -634,7 +663,7 @@ else:
     hs_rate = None
 
 # =========================
-# 6.1 Multi-kills
+# 5.1 Multi-kills
 # =========================
 if not player_kills.empty and "round" in player_kills.columns:
     kills_by_round = player_kills.groupby("round").size()
@@ -680,7 +709,7 @@ else:
     multi_kills = 0
 
 # =========================
-# 6.2 Missed trades
+# 5.2 Missed trades
 # =========================
 
 
@@ -707,7 +736,7 @@ for missed_trade in missed_trade_events:
     )
 
 # =========================
-# 6.3 Trade kills
+# 5.3 Trade kills
 # =========================
 TRADE_WINDOW_TICKS = 4 * 64
 
@@ -798,7 +827,7 @@ for event in events:
 
 
 # =========================
-# 7. Entry + timing + events
+# 5.4. Entry + timing + events
 # =========================
 entry_kills = 0
 entry_deaths = 0
@@ -856,7 +885,7 @@ for match_round, demo_round, live_start_tick, live_end_tick in round_intervals:
         )
 
 # =========================
-# 8. Averages
+# 6. Averages
 # =========================
 avg_time_first_kill = (
     sum(first_kill_times) / len(first_kill_times)
@@ -875,7 +904,7 @@ entry_success = (
 )
 
 # =========================
-# 9. Scoring
+# 7. Scoring
 # =========================
 low_impact_score = score_low_impact(
     kd,
@@ -955,7 +984,7 @@ top_problems = sorted(problems, key=lambda x: x["score"], reverse=True)
 top_problems = [p for p in top_problems if p["score"] >= 2][:3]
 
 # =========================
-# 10. Stats for report.py
+# 8. Stats for report.py
 # =========================
 stats = {
     "kd": kd,
@@ -978,7 +1007,7 @@ stats = {
 }
 
 # =========================
-# 10.1 Report JSON for frontend
+# 8.1 Report JSON for frontend
 # =========================
 report_data = {
     "player": player,
@@ -1012,7 +1041,7 @@ with open("report.json", "w", encoding="utf-8") as f:
 print("Frontend report сохранён в report.json")
 
 # =========================
-# 11. Console output
+# 9. Console output
 # =========================
 print("\n==| WATCHDEMO REPORT |==")
 print(f"Player: {player}\n")
@@ -1063,7 +1092,7 @@ print(f"Multi-kill rounds: {multi_kills}\n")
 
 
 # =========================
-# 12. Save markdown report
+# 10. Save markdown report
 # =========================
 report_text = generate_report(player, stats)
 

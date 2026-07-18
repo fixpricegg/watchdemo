@@ -196,7 +196,14 @@ function Radar({ tickIndex }) {
                     return (
                         <div
                             key={`grenade-${grenade.track_id}`}
-                            className={`grenade-marker grenade-marker-${grenade.type} grenade-marker-${grenade.phase}`}
+                            className={[
+                                "grenade-marker",
+                                `grenade-marker-${grenade.type}`,
+                                `grenade-marker-${grenade.phase}`,
+                                grenade.phase === "effect"
+                                    ? "grenade-effect"
+                                    : "grenade-projectile",
+                            ].join(" ")}
                             title={`${grenade.type} · ${grenade.thrower_name ?? "Unknown"}`}
                             style={{
                                 left: `${imageX}px`,
@@ -215,8 +222,14 @@ function Radar({ tickIndex }) {
 
                         {grenade.phase === "effect" && (
                             <>
-                                {grenade.type === "smoke" && "SM"}
-                                {grenade.type === "molotov" && "FIRE"}
+                                {grenade.type === "smoke" && (
+                                    <span className="grenade-effect-label">SMOKE</span>
+                                )}
+
+                                {grenade.type === "molotov" && (
+                                    <span className="grenade-effect-label">FIRE</span>
+                                )}
+
                                 {grenade.type === "decoy" && "D"}
                             </>
                         )}
