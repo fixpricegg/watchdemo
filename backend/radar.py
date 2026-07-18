@@ -651,6 +651,10 @@ def _find_matching_grenade_event(
     target_tick,
     min_tick=None,
     max_tick_gap=512,
+    target_x=None,
+    target_y=None,
+    target_z=None,
+    entity_id=None,
 ):
     if (
         event_df is None
@@ -661,6 +665,15 @@ def _find_matching_grenade_event(
         return None
 
     candidates = event_df.copy()
+
+    if entity_id is not None and "entityid" in candidates.columns:
+        entity_candidates = candidates[
+            candidates["entityid"].apply(_safe_int)
+            == int(entity_id)
+            ]
+
+        if not entity_candidates.empty:
+            candidates = entity_candidates
 
     if thrower_steamid is not None and "user_steamid" in candidates.columns:
         candidates = candidates[
@@ -677,18 +690,41 @@ def _find_matching_grenade_event(
         return None
 
     candidates = candidates.copy()
+
     candidates["tick_distance"] = (
         candidates["tick"].astype(int) - int(target_tick)
     ).abs()
 
-    candidates = candidates.sort_values(
-        ["tick_distance", "tick"]
+    has_target_position = (
+        target_x is not None
+        and target_y is not None
+        and "x" in candidates.columns
+        and "y" in candidates.columns
     )
+
+    if has_target_position:
+        candidates["position_distance"] = (
+            (candidates["x"].astype(float) - float(target_x)) ** 2
+            + (candidates["y"].astype(float) - float(target_y)) ** 2
+        ) ** 0.5
+
+        candidates = candidates.sort_values(
+            ["position_distance", "tick_distance", "tick"]
+        )
+    else:
+        candidates = candidates.sort_values(
+            ["tick_distance", "tick"]
+        )
 
     closest = candidates.iloc[0]
 
     if int(closest["tick_distance"]) > max_tick_gap:
         return None
+
+    # Expire должен происходить примерно в той же точке, где возник эффект.
+    if has_target_position:
+        if float(closest["position_distance"]) > 128:
+            return None
 
     return closest
 
@@ -816,8 +852,10 @@ def build_grenade_tracks(
                 detonate_row = _find_matching_grenade_event(
                     grenade_event_frames.get(detonate_event_name),
                     thrower_steamid=steamid,
-                    target_tick=end_tick,
+                    target_tick=start_tick,
                     min_tick=start_tick,
+                    max_tick_gap=64 * 30,
+                    entity_id=entity_id,
                 )
 
             detonate_tick = (
@@ -830,16 +868,26 @@ def build_grenade_tracks(
                 expire_row = _find_matching_grenade_event(
                     grenade_event_frames.get(expire_event_name),
                     thrower_steamid=steamid,
-                    target_tick=detonate_tick,
-                    min_tick=detonate_tick,
+                    target_tick=detonate_tick + 18 * 64,
+                    min_tick=detonate_tick + 1,
                     max_tick_gap=64 * 30,
+                    target_x=_safe_float(detonate_row.get("x"))
+                    if detonate_row is not None else None,
+                    target_y=_safe_float(detonate_row.get("y"))
+                    if detonate_row is not None else None,
+                    target_z=_safe_float(detonate_row.get("z"))
+                    if detonate_row is not None else None,
+                    entity_id=entity_id,
                 )
 
-            effect_end_tick = (
-                int(expire_row["tick"])
-                if expire_row is not None
-                else detonate_tick
-            )
+            if expire_row is not None:
+                effect_end_tick = int(expire_row["tick"])
+            elif grenade_type == "smoke":
+                effect_end_tick = detonate_tick + 18 * 64
+            elif grenade_type == "molotov":
+                effect_end_tick = detonate_tick + 7 * 64
+            else:
+                effect_end_tick = detonate_tick
 
             effect_x = None
             effect_y = None
