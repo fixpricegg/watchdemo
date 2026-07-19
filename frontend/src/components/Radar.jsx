@@ -182,6 +182,7 @@ function Radar({ tickIndex }) {
                             style={{
                                 left: `${imageX}px`,
                                 top: `${imageY}px`,
+                                "--view-yaw": `${-(pos.yaw ?? 0)}deg`,
                             }}
                         />
                     );
