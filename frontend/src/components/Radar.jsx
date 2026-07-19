@@ -184,7 +184,11 @@ function Radar({ tickIndex }) {
                                 top: `${imageY}px`,
                                 "--view-yaw": `${-(pos.yaw ?? 0)}deg`,
                             }}
-                        />
+                        >
+                            <span className="player-name">
+                                {player.name}
+                            </span>
+                        </div>
                     );
                 })}
 
