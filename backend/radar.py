@@ -64,13 +64,26 @@ def create_radar_event(event_type, tick, positions):
     }
 
 
-def create_player_position(tick, x, y, z, is_alive, team=None):
+def create_player_position(
+    tick,
+    x,
+    y,
+    z,
+    is_alive,
+    team=None,
+    yaw=None,
+):
     return {
         "tick": int(tick),
         "x": round(x),
         "y": round(y),
         "is_alive": bool(is_alive),
         "team": team,
+        "yaw": (
+            round(float(yaw), 1)
+            if yaw is not None and not pd.isna(yaw)
+            else None
+        ),
     }
 
 
@@ -993,6 +1006,7 @@ def build_radar_match(
                 row["Z"],
                 row["is_alive"],
                 current_team,
+                row.get("yaw"),
             )
         )
 

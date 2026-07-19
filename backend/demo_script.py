@@ -439,15 +439,7 @@ round_intervals = [
     for round_data in timeline_rounds
 ]
 
-print("\n== ROUND PAIRS DEBUG ==")
 
-for round_data in timeline_rounds[:5]:
-    print(
-        f"R{round_data['round']} | "
-        f"freeze={round_data['freeze_start_tick']} | "
-        f"live={round_data['live_start_tick']} | "
-        f"end={round_data['end_tick']}"
-    )
 
 # =========================
 # 4. Deaths inside live rounds
@@ -484,6 +476,7 @@ try:
         "X",
         "Y",
         "Z",
+        "yaw",
         "is_alive",
         "team_num",
         "inventory",
@@ -501,6 +494,7 @@ except Exception as e:
         "X",
         "Y",
         "Z",
+        "yaw",
         "is_alive",
         "inventory",
         "is_bomb_dropped",
