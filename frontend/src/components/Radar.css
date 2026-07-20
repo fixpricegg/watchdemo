@@ -109,15 +109,17 @@
 }
 
 .radar-section {
-    width: fit-content;
+    width: 100%;
     margin: 0 auto;
 }
 
 .radar-header {
+    width: min(1400px, calc(100% - 40px));
+    margin: 0 auto 12px;
+
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 12px;
 }
 
 .radar-header h2 {

@@ -1,0 +1,128 @@
+.round-info {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    margin-bottom: 15px;
+
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.timeline-section {
+    width: min(900px, 90vw);
+    margin: 35px auto 70px;
+}
+
+.timeline-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 14px;
+}
+
+.timeline-header h2 {
+    margin: 0;
+}
+
+.timeline-header .round-info {
+    margin: 0;
+    gap: 14px;
+    font-size: 16px;
+}
+
+.match-timeline {
+    position: relative;
+    height: 46px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.timeline-rounds {
+    display: flex;
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: 8px;
+}
+
+.timeline-round {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    min-width: 12px;
+    border-right: 1px solid #16181f;
+    background: #303641;
+
+    font-size: 11px;
+    color: #9ca9bd;
+}
+
+.timeline-round:nth-child(even) {
+    background: #3a414d;
+}
+
+.timeline-round.active-round {
+    color: white;
+}
+
+.timeline-progress {
+    position: absolute;
+    inset: 0 auto 0 0;
+
+    background: rgba(77, 166, 255, 0.22);
+    pointer-events: none;
+}
+
+.timeline-handle {
+    position: absolute;
+    top: -5px;
+    bottom: -5px;
+
+    width: 3px;
+    transform: translateX(-50%);
+    background: #ffffff;
+    pointer-events: none;
+}
+
+.timeline-controls {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.timeline-events {
+    position: absolute;
+    inset: 0;
+}
+.timeline-event {
+    position: absolute;
+
+    top: 50%;
+
+    width: 8px;
+    height: 8px;
+
+    border-radius: 50%;
+
+    transform: translate(-50%, -50%);
+
+    z-index: 10;
+
+    cursor: pointer;
+    transition: transform .15s;
+}
+
+.timeline-event:hover {
+    transform: translate(-50%, -50%) scale(1.4);
+}
+
+.timeline-event.positive {
+    background: #47d764;
+}
+
+.timeline-event.negative {
+    background: #ff5a5a;
+}

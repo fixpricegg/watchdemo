@@ -1,12 +1,25 @@
 import infernoMap from "../assets/maps/de_inferno_radar.png";
 import radarData from "../data/radar.json";
-import "./Radar.css"
+
+import PlayerHud from "./PlayerHud";
+
+import "./Radar.css";
 
 function Radar({ tickIndex }) {
-    const players = Object.values(radarData.players);
+    const players =
+        Object.values(radarData.players);
 
     const currentTick =
-        players[0]?.positions?.[tickIndex]?.tick ?? null;
+        players[0]?.positions?.[tickIndex]
+            ?.tick ?? null;
+
+    const playersWithCurrentPosition =
+        players.map((player) => ({
+            ...player,
+            currentPosition:
+                player.positions?.[tickIndex] ??
+                null,
+        }));
 
     const bombStates =
         radarData.bomb?.states ?? [];
@@ -29,12 +42,15 @@ function Radar({ tickIndex }) {
         scale: 4.9,
     };
 
-    const toImageCoordinates = (x, y) => {
-        return {
-            imageX: (x - mapInfo.pos_x) / mapInfo.scale,
-            imageY: (mapInfo.pos_y - y) / mapInfo.scale,
-        };
-    };
+    const toImageCoordinates = (x, y) => ({
+        imageX:
+            (x - mapInfo.pos_x) /
+            mapInfo.scale,
+
+        imageY:
+            (mapInfo.pos_y - y) /
+            mapInfo.scale,
+    });
 
     const getBombStatusText = () => {
         if (!bombState) {
@@ -66,7 +82,8 @@ function Radar({ tickIndex }) {
         }
     };
 
-    const grenadeTracks = radarData.grenades ?? [];
+    const grenadeTracks =
+        radarData.grenades ?? [];
 
     const activeGrenades = grenadeTracks
         .map((grenade) => {
@@ -75,12 +92,16 @@ function Radar({ tickIndex }) {
             }
 
             const isProjectile =
-                currentTick >= grenade.start_tick &&
-                currentTick <= grenade.projectile_end_tick;
+                currentTick >=
+                    grenade.start_tick &&
+                currentTick <=
+                    grenade.projectile_end_tick;
 
             const isEffect =
-                currentTick >= grenade.effect_start_tick &&
-                currentTick <= grenade.effect_end_tick;
+                currentTick >=
+                    grenade.effect_start_tick &&
+                currentTick <=
+                    grenade.effect_end_tick;
 
             if (!isProjectile && !isEffect) {
                 return null;
@@ -89,9 +110,16 @@ function Radar({ tickIndex }) {
             if (isProjectile) {
                 let currentPosition = null;
 
-                for (const position of grenade.positions) {
-                    if (position.tick <= currentTick) {
-                        currentPosition = position;
+                for (
+                    const position
+                    of grenade.positions
+                ) {
+                    if (
+                        position.tick <=
+                        currentTick
+                    ) {
+                        currentPosition =
+                            position;
                     } else {
                         break;
                     }
@@ -129,12 +157,17 @@ function Radar({ tickIndex }) {
     ];
 
     const canDrawBomb =
-        drawableBombStates.includes(bombState?.state) &&
+        drawableBombStates.includes(
+            bombState?.state
+        ) &&
         bombState.x !== null &&
         bombState.y !== null;
 
     const bombCoordinates = canDrawBomb
-        ? toImageCoordinates(bombState.x, bombState.y)
+        ? toImageCoordinates(
+              bombState.x,
+              bombState.y
+          )
         : null;
 
     return (
@@ -143,122 +176,211 @@ function Radar({ tickIndex }) {
                 <h2>Radar</h2>
 
                 <div
-                    className={`bomb-status bomb-status-${bombState?.state ?? "unavailable"}`}
+                    className={`bomb-status bomb-status-${
+                        bombState?.state ??
+                        "unavailable"
+                    }`}
                 >
                     {getBombStatusText()}
                 </div>
             </div>
 
-            <div className="radar-container">
-                <img
-                    src={infernoMap}
-                    alt="Inferno radar"
-                    className="radar-map"
+            <div className="radar-layout">
+                <PlayerHud
+                    players={
+                        playersWithCurrentPosition
+                    }
+                    currentTick={currentTick}
+                    team="CT"
                 />
 
-                {players.map((player, index) => {
-                    const pos = player.positions[tickIndex];
+                <div className="radar-container">
+                    <img
+                        src={infernoMap}
+                        alt="Inferno radar"
+                        className="radar-map"
+                    />
 
-                    if (!pos) return null;
+                    {playersWithCurrentPosition.map(
+                        (player, index) => {
+                            const pos =
+                                player.currentPosition;
 
-                    const { imageX, imageY } =
-                        toImageCoordinates(pos.x, pos.y);
+                            if (!pos) {
+                                return null;
+                            }
 
-                    const team = pos.team || player.team;
-                    const aliveClass = pos.is_alive
-                        ? "alive-dot"
-                        : "dead-dot";
+                            const {
+                                imageX,
+                                imageY,
+                            } =
+                                toImageCoordinates(
+                                    pos.x,
+                                    pos.y
+                                );
 
-                    return (
+                            const team =
+                                pos.team ||
+                                player.team;
+
+                            const aliveClass =
+                                pos.is_alive
+                                    ? "alive-dot"
+                                    : "dead-dot";
+
+                            return (
+                                <div
+                                    key={index}
+                                    className={`player-dot ${aliveClass} ${
+                                        team ===
+                                        "CT"
+                                            ? "ct-dot"
+                                            : "t-dot"
+                                    }`}
+                                    title={`${
+                                        player.name
+                                    } · ${team} · ${
+                                        pos.is_alive
+                                            ? "Alive"
+                                            : "Dead"
+                                    }`}
+                                    style={{
+                                        left: `${imageX}px`,
+                                        top: `${imageY}px`,
+                                        "--view-yaw": `${
+                                            -(
+                                                pos.yaw ??
+                                                0
+                                            )
+                                        }deg`,
+                                    }}
+                                >
+                                    <span className="player-name">
+                                        {
+                                            player.name
+                                        }
+                                    </span>
+                                </div>
+                            );
+                        }
+                    )}
+
+                    {activeGrenades.map(
+                        (grenade) => {
+                            const {
+                                imageX,
+                                imageY,
+                            } =
+                                toImageCoordinates(
+                                    grenade
+                                        .currentPosition
+                                        .x,
+                                    grenade
+                                        .currentPosition
+                                        .y
+                                );
+
+                            return (
+                                <div
+                                    key={`grenade-${grenade.track_id}`}
+                                    className={[
+                                        "grenade-marker",
+                                        `grenade-marker-${grenade.type}`,
+                                        `grenade-marker-${grenade.phase}`,
+                                        grenade.phase ===
+                                        "effect"
+                                            ? "grenade-effect"
+                                            : "grenade-projectile",
+                                    ].join(" ")}
+                                    title={`${
+                                        grenade.type
+                                    } · ${
+                                        grenade.thrower_name ??
+                                        "Unknown"
+                                    }`}
+                                    style={{
+                                        left: `${imageX}px`,
+                                        top: `${imageY}px`,
+                                    }}
+                                >
+                                    {grenade.phase ===
+                                        "projectile" && (
+                                        <>
+                                            {grenade.type ===
+                                                "smoke" &&
+                                                "S"}
+
+                                            {grenade.type ===
+                                                "flash" &&
+                                                "F"}
+
+                                            {grenade.type ===
+                                                "he" &&
+                                                "HE"}
+
+                                            {grenade.type ===
+                                                "molotov" &&
+                                                "M"}
+
+                                            {grenade.type ===
+                                                "decoy" &&
+                                                "D"}
+                                        </>
+                                    )}
+
+                                    {grenade.phase ===
+                                        "effect" && (
+                                        <>
+                                            {grenade.type ===
+                                                "smoke" && (
+                                                <span className="grenade-effect-label">
+                                                    SMOKE
+                                                </span>
+                                            )}
+
+                                            {grenade.type ===
+                                                "molotov" && (
+                                                <span className="grenade-effect-label">
+                                                    FIRE
+                                                </span>
+                                            )}
+
+                                            {grenade.type ===
+                                                "decoy" &&
+                                                "D"}
+                                        </>
+                                    )}
+                                </div>
+                            );
+                        }
+                    )}
+
+                    {canDrawBomb && (
                         <div
-                            key={index}
-                            className={`player-dot ${aliveClass} ${
-                                team === "CT"
-                                    ? "ct-dot"
-                                    : "t-dot"
-                            }`}
-                            title={`${player.name} · ${team} · ${
-                                pos.is_alive ? "Alive" : "Dead"
+                            className={`bomb-marker bomb-marker-${bombState.state}`}
+                            title={`${getBombStatusText()} · ${
+                                bombState.position_accuracy ===
+                                "carrier_position"
+                                    ? "Exact position"
+                                    : "Approximate position"
                             }`}
                             style={{
-                                left: `${imageX}px`,
-                                top: `${imageY}px`,
-                                "--view-yaw": `${-(pos.yaw ?? 0)}deg`,
+                                left: `${bombCoordinates.imageX}px`,
+                                top: `${bombCoordinates.imageY}px`,
                             }}
                         >
-                            <span className="player-name">
-                                {player.name}
-                            </span>
+                            C4
                         </div>
-                    );
-                })}
+                    )}
+                </div>
 
-                {activeGrenades.map((grenade) => {
-                    const { imageX, imageY } = toImageCoordinates(
-                        grenade.currentPosition.x,
-                        grenade.currentPosition.y
-                    );
-
-                    return (
-                        <div
-                            key={`grenade-${grenade.track_id}`}
-                            className={[
-                                "grenade-marker",
-                                `grenade-marker-${grenade.type}`,
-                                `grenade-marker-${grenade.phase}`,
-                                grenade.phase === "effect"
-                                    ? "grenade-effect"
-                                    : "grenade-projectile",
-                            ].join(" ")}
-                            title={`${grenade.type} · ${grenade.thrower_name ?? "Unknown"}`}
-                            style={{
-                                left: `${imageX}px`,
-                                top: `${imageY}px`,
-                            }}
-                        >
-                        {grenade.phase === "projectile" && (
-                            <>
-                                {grenade.type === "smoke" && "S"}
-                                {grenade.type === "flash" && "F"}
-                                {grenade.type === "he" && "HE"}
-                                {grenade.type === "molotov" && "M"}
-                                {grenade.type === "decoy" && "D"}
-                            </>
-                        )}
-
-                        {grenade.phase === "effect" && (
-                            <>
-                                {grenade.type === "smoke" && (
-                                    <span className="grenade-effect-label">SMOKE</span>
-                                )}
-
-                                {grenade.type === "molotov" && (
-                                    <span className="grenade-effect-label">FIRE</span>
-                                )}
-
-                                {grenade.type === "decoy" && "D"}
-                            </>
-                        )}
-                        </div>
-                    );
-                })}
-
-                {canDrawBomb && (
-                    <div
-                        className={`bomb-marker bomb-marker-${bombState.state}`}
-                        title={`${getBombStatusText()} · ${
-                            bombState.position_accuracy === "carrier_position"
-                                ? "Exact position"
-                                : "Approximate position"
-                        }`}
-                        style={{
-                            left: `${bombCoordinates.imageX}px`,
-                            top: `${bombCoordinates.imageY}px`,
-                        }}
-                    >
-                        C4
-                    </div>
-                )}
+                <PlayerHud
+                    players={
+                        playersWithCurrentPosition
+                    }
+                    currentTick={currentTick}
+                    team="T"
+                />
             </div>
         </section>
     );
