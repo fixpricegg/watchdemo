@@ -1,3 +1,5 @@
+import "./Summary.css";
+
 function formatPercent(value) {
     if (value === null || value === undefined) {
         return "N/A";

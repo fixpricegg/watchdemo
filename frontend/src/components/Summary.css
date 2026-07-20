@@ -1,0 +1,144 @@
+.summary-section {
+    width: min(900px, 90vw);
+    margin: 24px auto 32px;
+    text-align: left;
+}
+
+.summary-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
+}
+
+.summary-header h2 {
+    margin: 0;
+    font-size: 32px;
+}
+
+.eyebrow {
+    color: #8fa3bd;
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+.map-pill {
+    padding: 7px 12px;
+    border: 1px solid #303747;
+    border-radius: 999px;
+    color: #c7d2e3;
+    background: #1d2230;
+    font-size: 14px;
+}
+
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+}
+
+.summary-card {
+    padding: 16px;
+    border: 1px solid #2d3444;
+    border-radius: 12px;
+    background: #1b202b;
+}
+
+.summary-card span {
+    display: block;
+    color: #8fa3bd;
+    font-size: 13px;
+    margin-bottom: 8px;
+}
+
+.summary-card strong {
+    display: block;
+    color: #f3f6fb;
+    font-size: 24px;
+    line-height: 1.1;
+}
+
+.summary-card p {
+    color: #9ca9bd;
+    font-size: 13px;
+    margin-top: 8px;
+}
+
+.problems-block {
+    margin-top: 26px;
+}
+
+.problems-header {
+    margin-bottom: 14px;
+}
+
+.problems-header h3 {
+    margin: 0 0 4px;
+    color: #f3f6fb;
+    font-size: 24px;
+}
+
+.problems-header p {
+    color: #9ca9bd;
+}
+
+.problem-list {
+    display: grid;
+    gap: 12px;
+}
+
+.problem-card {
+    padding: 16px;
+    border: 1px solid #2d3444;
+    border-radius: 12px;
+    background: #181d27;
+}
+
+.problem-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.problem-top span {
+    color: #8fa3bd;
+}
+
+.problem-top strong {
+    color: #f3f6fb;
+}
+
+.problem-top em {
+    margin-left: auto;
+    color: #ffb347;
+    font-style: normal;
+    font-size: 13px;
+}
+
+.problem-card p {
+    color: #aeb9ca;
+    margin-bottom: 10px;
+}
+
+.problem-card ul {
+    margin: 0;
+    padding-left: 18px;
+    color: #9ca9bd;
+}
+
+.problem-card li {
+    margin: 4px 0;
+}
+
+@media (max-width: 1024px) {
+    .summary-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .summary-header {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 10px;
+    }
+}

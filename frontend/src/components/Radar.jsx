@@ -1,5 +1,6 @@
 import infernoMap from "../assets/maps/de_inferno_radar.png";
 import radarData from "../data/radar.json";
+import "./Radar.css"
 
 function Radar({ tickIndex }) {
     const players = Object.values(radarData.players);

@@ -1,4 +1,5 @@
 import radarData from "../data/radar.json";
+import "./Timeline.css";
 
 function Timeline({
     tickIndex,
