@@ -63,6 +63,85 @@ def create_radar_event(event_type, tick, positions):
         "positions": positions,
     }
 
+def normalize_inventory(value):
+    if value is None:
+        return []
+
+    if hasattr(value, "tolist"):
+        value = value.tolist()
+
+    if not isinstance(value, (list, tuple)):
+        if pd.isna(value):
+            return []
+
+        value = [value]
+
+    result = []
+
+    for item in value:
+        if item is None:
+            continue
+
+        if isinstance(item, float) and pd.isna(item):
+            continue
+
+        result.append(str(item))
+
+    return sorted(result)
+
+
+def normalize_optional_int(value):
+    if value is None or pd.isna(value):
+        return None
+
+    return int(value)
+
+def normalize_optional_bool(value):
+    if value is None or pd.isna(value):
+        return None
+
+    return bool(value)
+
+
+def normalize_optional_string(value):
+    if value is None or pd.isna(value):
+        return None
+
+    return str(value)
+
+
+def create_player_state(row):
+    return {
+        "tick": int(row["tick"]),
+        "health": normalize_optional_int(row.get("health")),
+        "armor": normalize_optional_int(row.get("armor")),
+        "has_helmet": normalize_optional_bool(
+            row.get("has_helmet")
+        ),
+        "active_weapon": normalize_optional_string(
+            row.get("active_weapon_name")
+        ),
+        "inventory": normalize_inventory(
+            row.get("inventory")
+        ),
+    }
+
+def player_state_changed(previous_state, current_state):
+    if previous_state is None:
+        return True
+
+    fields = [
+        "health",
+        "armor",
+        "has_helmet",
+        "active_weapon",
+        "inventory",
+    ]
+
+    return any(
+        previous_state.get(field) != current_state.get(field)
+        for field in fields
+    )
 
 def create_player_position(
     tick,
@@ -966,13 +1045,17 @@ def build_radar_match(
         for _, row in player_info.iterrows()
     }
 
-    sampled_position_df = position_df[
+    valid_position_df = position_df[
         position_df["tick"].notna()
     ].copy()
-    sampled_position_df["tick"] = sampled_position_df["tick"].astype(int)
-    sampled_position_df = sampled_position_df[
-        sampled_position_df["tick"] % RADAR_TICK_STEP == 0
-    ]
+
+    valid_position_df["tick"] = (
+        valid_position_df["tick"].astype(int)
+    )
+
+    sampled_position_df = valid_position_df[
+        valid_position_df["tick"] % RADAR_TICK_STEP == 0
+        ].copy()
 
     bomb_states, bomb_events = build_bomb_timeline(
         sampled_position_df,
@@ -996,6 +1079,7 @@ def build_radar_match(
                 "name": row["name"],
                 "team": fallback_team,
                 "positions": [],
+                "states": [],
             }
 
         radar_match["players"][steamid]["positions"].append(
@@ -1009,6 +1093,25 @@ def build_radar_match(
                 row.get("yaw"),
             )
         )
+
+    for steamid, player in radar_match["players"].items():
+        player_rows = valid_position_df[
+            valid_position_df["steamid"].astype(int) == int(steamid)
+            ].sort_values("tick")
+
+        previous_state = None
+
+        for _, row in player_rows.iterrows():
+            current_state = create_player_state(row)
+
+            if not player_state_changed(
+                    previous_state,
+                    current_state,
+            ):
+                continue
+
+            player["states"].append(current_state)
+            previous_state = current_state
 
     return radar_match
 
@@ -1046,7 +1149,11 @@ def get_players_at_tick(radar_match, tick):
     result = []
 
     for steamid, player in radar_match["players"].items():
-        pos = get_player_position(radar_match, steamid, tick)
+        pos = get_player_position(
+            radar_match,
+            steamid,
+            tick,
+        )
 
         if pos is None:
             continue

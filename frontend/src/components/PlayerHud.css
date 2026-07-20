@@ -1,0 +1,186 @@
+.radar-layout {
+    width: max-content;
+    margin: 0 auto;
+
+    display: grid;
+    grid-template-columns:
+        190px
+        1024px
+        190px;
+
+    align-items: start;
+    gap: 14px;
+}
+
+.hud-team {
+    min-width: 0;
+
+    display: grid;
+    gap: 8px;
+
+    position: sticky;
+    top: 12px;
+
+    text-align: left;
+}
+
+.hud-team h3 {
+    margin: 0 0 4px;
+
+    color: #f3f6fb;
+
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.hud-team-ct h3 {
+    color: #4da6ff;
+}
+
+.hud-team-t h3 {
+    color: #ffb347;
+}
+
+.hud-player {
+    min-width: 0;
+    min-height: 48px;
+
+    padding: 8px 9px;
+
+    border: 1px solid #303747;
+    border-radius: 8px;
+
+    background: #181d27;
+
+    box-sizing: border-box;
+
+    transition:
+        opacity 0.15s,
+        filter 0.15s;
+}
+
+.hud-player-ct {
+    border-left: 3px solid #4da6ff;
+}
+
+.hud-player-t {
+    border-left: 3px solid #ffb347;
+}
+
+.hud-player-dead {
+    opacity: 0.38;
+    filter: grayscale(1);
+}
+
+.hud-player-main {
+    min-width: 0;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.hud-player-name {
+    min-width: 0;
+
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+
+    color: #f3f6fb;
+
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.hud-player-weapon {
+    min-width: 0;
+    max-width: 90px;
+
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+
+    color: #aeb9ca;
+
+    font-size: 9px;
+}
+
+.hud-player-stats {
+    min-width: 0;
+
+    display: flex;
+    align-items: center;
+    gap: 5px;
+
+    margin-top: 5px;
+}
+
+.hud-stat {
+    white-space: nowrap;
+
+    color: #9ca9bd;
+    font-size: 9px;
+}
+
+.hud-helmet {
+    min-width: 15px;
+    height: 15px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 4px;
+
+    color: #111111;
+    background: #d8dde6;
+
+    font-size: 8px;
+    font-weight: 900;
+}
+
+.hud-grenades {
+    min-width: 0;
+
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 3px;
+
+    margin-left: auto;
+}
+
+.hud-grenade {
+    min-width: 16px;
+    height: 15px;
+
+    padding: 0 2px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    border: 1px solid #465063;
+    border-radius: 4px;
+
+    color: #dce4f0;
+    background: #242b38;
+
+    box-sizing: border-box;
+
+    font-size: 7px;
+    font-weight: 800;
+}
+
+@media (max-width: 1450px) {
+    .radar-layout {
+        grid-template-columns:
+            170px
+            1024px
+            170px;
+
+        gap: 8px;
+    }
+}
