@@ -2,12 +2,17 @@ import infernoMap from "../assets/maps/de_inferno_radar.png";
 import radarData from "../data/radar.json";
 
 import PlayerHud from "./PlayerHud";
+import KillFeed from "./KillFeed";
 
 import "./Radar.css";
 
 function Radar({ tickIndex }) {
-    const players =
-        Object.values(radarData.players);
+    const players = Object.entries(
+        radarData.players
+    ).map(([steamid, player]) => ({
+        ...player,
+        steamid,
+    }));
 
     const currentTick =
         players[0]?.positions?.[tickIndex]
@@ -81,6 +86,8 @@ function Radar({ tickIndex }) {
                 return "Bomb unavailable";
         }
     };
+
+    const kills = radarData.kills ?? [];
 
     const grenadeTracks =
         radarData.grenades ?? [];
@@ -199,6 +206,12 @@ function Radar({ tickIndex }) {
                         src={infernoMap}
                         alt="Inferno radar"
                         className="radar-map"
+                    />
+
+                    <KillFeed
+                        kills={kills}
+                        players={playersWithCurrentPosition}
+                        currentTick={currentTick}
                     />
 
                     {playersWithCurrentPosition.map(
