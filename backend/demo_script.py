@@ -268,6 +268,10 @@ if deaths.empty:
 
 deaths = clean_deaths(deaths)
 
+# Отдельная копия для kill feed.
+# Здесь сохраняются в том числе убийства ножом.
+deaths_for_kill_feed = deaths.copy()
+
 if "weapon" in deaths.columns:
     knife_weapons = [
         "knife",
@@ -392,7 +396,7 @@ if not real_prestart_ticks:
     )
 
 # =========================
-# 4. Собираем раунды хронологически
+# 3.2. Собираем раунды хронологически
 # prestart -> ближайший freeze_end -> следующий prestart
 # =========================
 round_pairs = []
@@ -464,6 +468,89 @@ deaths_clean = pd.DataFrame(clean_deaths_list)
 if deaths_clean.empty:
     print("После фильтрации по live-раундам не осталось смертей.")
     exit()
+
+# =========================
+# 4.0.1 Kill feed
+# =========================
+kill_feed = []
+
+for _, death in deaths_for_kill_feed.sort_values("tick").iterrows():
+    death_tick = int(death["tick"])
+
+    kill_round = None
+
+    for match_round, demo_round, start_tick, end_tick in round_intervals:
+        if start_tick <= death_tick < end_tick:
+            kill_round = int(match_round)
+            break
+
+    # Не тащим события разминки и служебные смерти вне реальных раундов.
+    if kill_round is None:
+        continue
+
+    attacker_name = death.get("attacker_name")
+    victim_name = death.get("user_name")
+
+    attacker_steamid = death.get("attacker_steamid")
+    victim_steamid = death.get("user_steamid")
+
+    # World, неизвестный источник урона или битая строка.
+    if (
+        pd.isna(attacker_name)
+        or pd.isna(victim_name)
+        or pd.isna(attacker_steamid)
+        or pd.isna(victim_steamid)
+    ):
+        continue
+
+    attacker_steamid = int(attacker_steamid)
+    victim_steamid = int(victim_steamid)
+
+    # Самоубийства в обычный kill feed пока не выводим.
+    if attacker_steamid == victim_steamid:
+        continue
+
+    weapon = death.get("weapon")
+    headshot = death.get("headshot")
+    assister_name = death.get("assister_name")
+    assister_steamid = death.get("assister_steamid")
+
+    kill_feed.append({
+        "tick": death_tick,
+        "round": kill_round,
+
+        "attacker_name": str(attacker_name),
+        "attacker_steamid": attacker_steamid,
+
+        "victim_name": str(victim_name),
+        "victim_steamid": victim_steamid,
+
+        "weapon": (
+            str(weapon)
+            if not pd.isna(weapon)
+            else "unknown"
+        ),
+
+        "headshot": (
+            bool(headshot)
+            if not pd.isna(headshot)
+            else False
+        ),
+
+        "assister_name": (
+            str(assister_name)
+            if not pd.isna(assister_name)
+            else None
+        ),
+
+        "assister_steamid": (
+            int(assister_steamid)
+            if not pd.isna(assister_steamid)
+            else None
+        ),
+    })
+
+print(f"KILL FEED EVENTS: {len(kill_feed)}")
 
 # =========================
 # 4.1 Positions
@@ -605,6 +692,8 @@ radar_match = radar.build_radar_match(
     grenade_df=grenade_df,
     grenade_event_frames=grenade_event_frames,
 )
+
+radar_match["kills"] = kill_feed
 
 # radar.export_radar_json(
 #     radar_match,

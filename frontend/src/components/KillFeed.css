@@ -1,0 +1,79 @@
+.kill-feed {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+
+    z-index: 30;
+
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 5px;
+
+    pointer-events: none;
+}
+
+.kill-feed-item {
+    min-height: 27px;
+    padding: 5px 7px;
+
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    border: 1px solid rgba(120, 130, 150, 0.35);
+    border-radius: 5px;
+
+    background: rgba(13, 16, 22, 0.88);
+
+    box-sizing: border-box;
+
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.kill-feed-player {
+    color: #e7ebf2;
+}
+
+.kill-feed-ct {
+    color: #58aaff;
+}
+
+.kill-feed-t {
+    color: #ffae42;
+}
+
+.kill-feed-weapon {
+    padding: 3px 5px;
+
+    border-radius: 3px;
+
+    color: #d3dae6;
+    background: #292f3b;
+
+    font-size: 8px;
+}
+
+.kill-feed-headshot {
+    padding: 3px;
+
+    border-radius: 3px;
+
+    color: #111111;
+    background: #e8d56d;
+
+    font-size: 7px;
+    font-weight: 900;
+}
+
+.kill-feed-assist {
+    color: #7f8999;
+    font-size: 8px;
+}
+
+.kill-feed-neutral {
+    color: #d5d9e2;
+}
