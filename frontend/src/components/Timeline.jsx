@@ -7,12 +7,16 @@ function Timeline({
     isPlaying,
     setIsPlaying,
 }) {
-    const players = Object.values(radarData.players);
     const rounds = radarData.rounds;
     const events = radarData.events || [];
 
-    const positions = players[0].positions;
-    const currentTick = positions[tickIndex]?.tick;
+    const masterTicks = (
+        radarData.bomb?.states ?? []
+    ).map((state) => state.tick);
+
+    const currentTick =
+        masterTicks[tickIndex] ??
+        masterTicks[0];
 
     const timelineStartTick = rounds[0].freeze_start_tick;
     const timelineEndTick = rounds[rounds.length - 1].end_tick;
@@ -56,19 +60,50 @@ function Timeline({
     );
 
     function getClosestTickIndex(targetTick) {
-        let closestIndex = 0;
-        let closestDifference = Infinity;
+        if (masterTicks.length === 0) {
+            return 0;
+        }
 
-        positions.forEach((position, index) => {
-            const difference = Math.abs(position.tick - targetTick);
+        let left = 0;
+        let right = masterTicks.length - 1;
 
-            if (difference < closestDifference) {
-                closestDifference = difference;
-                closestIndex = index;
+        while (left <= right) {
+            const middle = Math.floor(
+                (left + right) / 2
+            );
+
+            const tick = masterTicks[middle];
+
+            if (tick === targetTick) {
+                return middle;
             }
-        });
 
-        return closestIndex;
+            if (tick < targetTick) {
+                left = middle + 1;
+            } else {
+                right = middle - 1;
+            }
+        }
+
+        if (left >= masterTicks.length) {
+            return masterTicks.length - 1;
+        }
+
+        if (right < 0) {
+            return 0;
+        }
+
+        const leftDifference = Math.abs(
+            masterTicks[left] - targetTick
+        );
+
+        const rightDifference = Math.abs(
+            masterTicks[right] - targetTick
+        );
+
+        return leftDifference < rightDifference
+            ? left
+            : right;
     }
 
     function handleTimelineClick(event) {
@@ -183,7 +218,10 @@ function Timeline({
                 <button
                     onClick={() =>
                         setTickIndex((prev) =>
-                            Math.min(positions.length - 1, prev + 8)
+                            Math.min(
+                                masterTicks.length - 1,
+                                prev + 8
+                            )
                         )
                     }
                 >

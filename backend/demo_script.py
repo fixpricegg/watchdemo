@@ -209,7 +209,7 @@ def score_hs(hs_rate):
         return 0
 
 
-demo_path = "demos/match13.dem"
+demo_path = "demos/match14.dem"
 player = "k1tagawaaa"
 
 parser = DemoParser(demo_path)
@@ -332,7 +332,6 @@ try:
         "hegrenade_detonate",
         "smokegrenade_detonate",
         "smokegrenade_expired",
-        "molotov_detonate",
         "inferno_startburn",
         "inferno_expire",
         "decoy_started",
