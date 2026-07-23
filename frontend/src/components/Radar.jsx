@@ -1,4 +1,4 @@
-import infernoMap from "../assets/maps/de_inferno_radar.png";
+import { getMapConfig } from "../config/maps";
 import radarData from "../data/radar.json";
 
 import PlayerHud from "./PlayerHud";
@@ -7,6 +7,18 @@ import KillFeed from "./KillFeed";
 import "./Radar.css";
 
 function Radar({ tickIndex }) {
+    const mapConfig = getMapConfig(radarData.map);
+
+    if (!mapConfig) {
+        return (
+            <section className="radar-section">
+                <p>
+                    Unsupported map: {radarData.map}
+                </p>
+            </section>
+        );
+    }
+
     const players = Object.entries(
         radarData.players
     ).map(([steamid, player]) => ({
@@ -14,16 +26,51 @@ function Radar({ tickIndex }) {
         steamid,
     }));
 
-    const currentTick =
-        players[0]?.positions?.[tickIndex]
-            ?.tick ?? null;
+    const masterTicks = (
+        radarData.bomb?.states ?? []
+    ).map((state) => state.tick);
 
+    const currentTick =
+        masterTicks[tickIndex] ?? null;
+
+    function getPositionAtTick(positions, targetTick) {
+        if (
+            !positions?.length ||
+            targetTick === null
+        ) {
+            return null;
+        }
+
+        let left = 0;
+        let right = positions.length - 1;
+        let result = null;
+
+        while (left <= right) {
+            const middle = Math.floor(
+                (left + right) / 2
+            );
+
+            const position = positions[middle];
+
+            if (position.tick <= targetTick) {
+                result = position;
+                left = middle + 1;
+            } else {
+                right = middle - 1;
+            }
+        }
+
+        return result;
+    }
+    
     const playersWithCurrentPosition =
         players.map((player) => ({
             ...player,
             currentPosition:
-                player.positions?.[tickIndex] ??
-                null,
+                getPositionAtTick(
+                    player.positions,
+                    currentTick
+                ),
         }));
 
     const bombStates =
@@ -41,20 +88,14 @@ function Radar({ tickIndex }) {
         }
     }
 
-    const mapInfo = {
-        pos_x: -2087,
-        pos_y: 3870,
-        scale: 4.9,
-    };
-
     const toImageCoordinates = (x, y) => ({
         imageX:
-            (x - mapInfo.pos_x) /
-            mapInfo.scale,
+            (x - mapConfig.posX) /
+            mapConfig.scale,
 
         imageY:
-            (mapInfo.pos_y - y) /
-            mapInfo.scale,
+            (mapConfig.posY - y) /
+            mapConfig.scale,
     });
 
     const getBombStatusText = () => {
@@ -105,6 +146,7 @@ function Radar({ tickIndex }) {
                     grenade.projectile_end_tick;
 
             const isEffect =
+                grenade.has_effect !== false &&
                 currentTick >=
                     grenade.effect_start_tick &&
                 currentTick <=
@@ -203,8 +245,8 @@ function Radar({ tickIndex }) {
 
                 <div className="radar-container">
                     <img
-                        src={infernoMap}
-                        alt="Inferno radar"
+                        src={mapConfig.image}
+                        alt={`${mapConfig.name} radar`}
                         className="radar-map"
                     />
 

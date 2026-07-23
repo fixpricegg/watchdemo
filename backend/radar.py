@@ -727,7 +727,7 @@ GRENADE_EVENT_CONFIG = {
         "expire": "smokegrenade_expired",
     },
     "molotov": {
-        "detonate": "molotov_detonate",
+        "detonate": "inferno_startburn",
         "expire": "inferno_expire",
     },
     "decoy": {
@@ -747,6 +747,7 @@ def _find_matching_grenade_event(
     target_y=None,
     target_z=None,
     entity_id=None,
+    max_position_gap=128,
 ):
     if (
         event_df is None
@@ -815,7 +816,10 @@ def _find_matching_grenade_event(
 
     # Expire должен происходить примерно в той же точке, где возник эффект.
     if has_target_position:
-        if float(closest["position_distance"]) > 128:
+        if (
+                float(closest["position_distance"])
+                > max_position_gap
+        ):
             return None
 
     return closest
@@ -939,16 +943,56 @@ def build_grenade_tracks(
 
             detonate_row = None
             expire_row = None
+            has_effect = True
 
             if detonate_event_name:
-                detonate_row = _find_matching_grenade_event(
-                    grenade_event_frames.get(detonate_event_name),
-                    thrower_steamid=steamid,
-                    target_tick=start_tick,
-                    min_tick=start_tick,
-                    max_tick_gap=64 * 30,
-                    entity_id=entity_id,
-                )
+                if grenade_type == "molotov":
+                    # У летящего молика и возникшего огня
+                    # разные entityid.
+                    # Ищем реальное начало огня рядом
+                    # с последней точкой полёта молика.
+                    detonate_row = _find_matching_grenade_event(
+                        grenade_event_frames.get(
+                            detonate_event_name
+                        ),
+                        thrower_steamid=None,
+                        target_tick=end_tick,
+                        min_tick=max(
+                            start_tick,
+                            end_tick - 64,
+                        ),
+                        max_tick_gap=2 * 64,
+                        target_x=_safe_float(
+                            last_row.get("x")
+                        ),
+                        target_y=_safe_float(
+                            last_row.get("y")
+                        ),
+                        target_z=_safe_float(
+                            last_row.get("z")
+                        ),
+                        entity_id=None,
+                        max_position_gap=256,
+                    )
+                else:
+                    detonate_row = _find_matching_grenade_event(
+                        grenade_event_frames.get(
+                            detonate_event_name
+                        ),
+                        thrower_steamid=steamid,
+                        target_tick=start_tick,
+                        min_tick=start_tick,
+                        max_tick_gap=64 * 30,
+                        entity_id=entity_id,
+                    )
+            # Если inferno_startburn не возник,
+            # значит реального огня не было.
+            # Например, молик сразу упал в дым.
+            if (
+                    grenade_type == "molotov"
+                    and detonate_row is None
+            ):
+                has_effect = False
 
             detonate_tick = (
                 int(detonate_row["tick"])
@@ -956,28 +1000,75 @@ def build_grenade_tracks(
                 else end_tick
             )
 
-            if expire_event_name:
+            if expire_event_name and has_effect:
+                expire_entity_id = entity_id
+                expire_thrower_steamid = steamid
+                expected_lifetime_ticks = 18 * 64
+                expire_max_tick_gap = 30 * 64
+                expire_position_gap = 128
+
+                if grenade_type == "molotov":
+                    # inferno_startburn и inferno_expire
+                    # используют entityid самого огня.
+                    expire_entity_id = _safe_int(
+                        detonate_row.get("entityid")
+                    )
+                    expire_thrower_steamid = None
+                    expected_lifetime_ticks = 7 * 64
+                    expire_max_tick_gap = 10 * 64
+                    expire_position_gap = 256
+
                 expire_row = _find_matching_grenade_event(
-                    grenade_event_frames.get(expire_event_name),
-                    thrower_steamid=steamid,
-                    target_tick=detonate_tick + 18 * 64,
+                    grenade_event_frames.get(
+                        expire_event_name
+                    ),
+                    thrower_steamid=
+                    expire_thrower_steamid,
+                    target_tick=(
+                            detonate_tick
+                            + expected_lifetime_ticks
+                    ),
                     min_tick=detonate_tick + 1,
-                    max_tick_gap=64 * 30,
-                    target_x=_safe_float(detonate_row.get("x"))
-                    if detonate_row is not None else None,
-                    target_y=_safe_float(detonate_row.get("y"))
-                    if detonate_row is not None else None,
-                    target_z=_safe_float(detonate_row.get("z"))
-                    if detonate_row is not None else None,
-                    entity_id=entity_id,
+                    max_tick_gap=expire_max_tick_gap,
+                    target_x=(
+                        _safe_float(
+                            detonate_row.get("x")
+                        )
+                        if detonate_row is not None
+                        else None
+                    ),
+                    target_y=(
+                        _safe_float(
+                            detonate_row.get("y")
+                        )
+                        if detonate_row is not None
+                        else None
+                    ),
+                    target_z=(
+                        _safe_float(
+                            detonate_row.get("z")
+                        )
+                        if detonate_row is not None
+                        else None
+                    ),
+                    entity_id=expire_entity_id,
+                    max_position_gap=expire_position_gap,
                 )
 
-            if expire_row is not None:
-                effect_end_tick = int(expire_row["tick"])
+            if not has_effect:
+                effect_end_tick = detonate_tick
+            elif expire_row is not None:
+                effect_end_tick = int(
+                    expire_row["tick"]
+                )
             elif grenade_type == "smoke":
-                effect_end_tick = detonate_tick + 18 * 64
+                effect_end_tick = (
+                        detonate_tick + 18 * 64
+                )
             elif grenade_type == "molotov":
-                effect_end_tick = detonate_tick + 7 * 64
+                effect_end_tick = (
+                        detonate_tick + 7 * 64
+                )
             else:
                 effect_end_tick = detonate_tick
 
@@ -994,6 +1085,7 @@ def build_grenade_tracks(
                 "track_id": f"{int(entity_id)}-{start_tick}",
                 "entity_id": int(entity_id),
                 "type": grenade_type,
+                "has_effect": has_effect,
                 "raw_type": str(raw_type),
                 "thrower_steamid": steamid,
                 "thrower_name": thrower_name,
