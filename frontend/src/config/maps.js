@@ -25,7 +25,7 @@ const maps = {
     posX: -2476,
     posY: 3239,
     scale: 4.4,
-},
+    },
 };
 export function getMapConfig(mapName) {
     return maps[mapName] ?? null;
