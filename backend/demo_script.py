@@ -209,8 +209,8 @@ def score_hs(hs_rate):
         return 0
 
 
-demo_path = "demos/match17anubis.dem"
-player = "k1tagawaaa"
+demo_path = "demos/match18cache.dem"
+player = "StRoGo"
 
 parser = DemoParser(demo_path)
 

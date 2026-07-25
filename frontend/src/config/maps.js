@@ -3,6 +3,7 @@ import mirageMap from "../assets/maps/de_mirage_radar.png";
 import dust2Map from "../assets/maps/de_dust2_radar.png";
 import ancientMap from "../assets/maps/de_ancient_radar.png";
 import anubisMap from "../assets/maps/de_anubis_radar.png";
+import cacheMap from "../assets/maps/de_cache_radar.png";
 
 const maps = {
     de_inferno: {
@@ -44,6 +45,15 @@ const maps = {
     posY: 3328,
     scale: 5.22,
     },
+
+    de_cache: {
+    name: "Cache",
+    image: cacheMap,
+    posX: -2000,
+    posY: 3250,
+    scale: 5.5,
+    },
+    
 };
 export function getMapConfig(mapName) {
     return maps[mapName] ?? null;
