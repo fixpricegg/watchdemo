@@ -209,7 +209,7 @@ def score_hs(hs_rate):
         return 0
 
 
-demo_path = "demos/match14.dem"
+demo_path = "demos/match16ancient.dem"
 player = "k1tagawaaa"
 
 parser = DemoParser(demo_path)
@@ -295,7 +295,7 @@ if deaths.empty:
     print("После очистки не осталось игровых смертей.")
     exit()
 
-match_end_tick = deaths["tick"].max()
+
 
 # =========================
 # 3. Round live starts через round_freeze_end
@@ -305,6 +305,36 @@ round_live_starts = parser.parse_event("round_freeze_end")
 round_starts = parser.parse_event("round_prestart")
 
 round_ends = safe_parse_event(parser, "round_end")
+
+# Реальный конец демки нельзя определять
+# по последнему убийству.
+demo_end_tick = None
+
+if (
+    "tick_df" in globals()
+    and isinstance(tick_df, pd.DataFrame)
+    and not tick_df.empty
+    and "tick" in tick_df.columns
+):
+    demo_end_tick = int(
+        tick_df["tick"].dropna().max()
+    )
+
+elif (
+    isinstance(round_ends, pd.DataFrame)
+    and not round_ends.empty
+    and "tick" in round_ends.columns
+):
+    demo_end_tick = int(
+        round_ends["tick"].dropna().max()
+    )
+
+else:
+    demo_end_tick = int(
+        deaths_for_kill_feed["tick"]
+        .dropna()
+        .max()
+    )
 
 # Core events drive the persistent bomb state. Begin/abort events are retained
 # in radar.json for Timeline/debug, but they do not change that state.
@@ -404,7 +434,7 @@ for index, freeze_start_tick in enumerate(real_prestart_ticks):
     if index < len(real_prestart_ticks) - 1:
         next_freeze_start_tick = real_prestart_ticks[index + 1]
     else:
-        next_freeze_start_tick = int(match_end_tick) + 1
+        next_freeze_start_tick = demo_end_tick + 1
 
     live_candidates = [
         tick
