@@ -10,27 +10,36 @@ import Timeline from "./components/Timeline";
 import radarData from "./data/radar.json";
 
 function App() {
-    const players = Object.values(radarData.players);
+    const masterTicks = (
+        radarData.bomb?.states ?? []
+    ).map((state) => state.tick);
+
+    const maxTickIndex = Math.max(
+        0,
+        masterTicks.length - 1
+    );
 
     const [tickIndex, setTickIndex] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
 
     useEffect(() => {
-        if (!isPlaying) return;
+    if (!isPlaying) {
+        return;
+    }
 
-        const interval = setInterval(() => {
-            setTickIndex((prev) => {
-                if (prev >= players[0].positions.length - 1) {
-                    setIsPlaying(false);
-                    return prev;
-                }
+    const interval = setInterval(() => {
+        setTickIndex((prev) => {
+            if (prev >= maxTickIndex) {
+                setIsPlaying(false);
+                return maxTickIndex;
+            }
 
-                return prev + 1;
-            });
-        }, 100);
+            return prev + 1;
+        });
+    }, 100);
 
-        return () => clearInterval(interval);
-    }, [isPlaying, players]);
+    return () => clearInterval(interval);
+}, [isPlaying, maxTickIndex]);
 
     return (
         <div>
