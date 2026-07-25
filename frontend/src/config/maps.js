@@ -2,6 +2,7 @@ import infernoMap from "../assets/maps/de_inferno_radar.png";
 import mirageMap from "../assets/maps/de_mirage_radar.png";
 import dust2Map from "../assets/maps/de_dust2_radar.png";
 import ancientMap from "../assets/maps/de_ancient_radar.png";
+import anubisMap from "../assets/maps/de_anubis_radar.png";
 
 const maps = {
     de_inferno: {
@@ -34,6 +35,14 @@ const maps = {
     posX: -2953,
     posY: 2164,
     scale: 5,
+    },
+
+    de_anubis: {
+    name: "Anubis",
+    image: anubisMap,
+    posX: -2796,
+    posY: 3328,
+    scale: 5.22,
     },
 };
 export function getMapConfig(mapName) {

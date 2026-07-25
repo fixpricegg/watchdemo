@@ -209,7 +209,7 @@ def score_hs(hs_rate):
         return 0
 
 
-demo_path = "demos/match16ancient.dem"
+demo_path = "demos/match17anubis.dem"
 player = "k1tagawaaa"
 
 parser = DemoParser(demo_path)
