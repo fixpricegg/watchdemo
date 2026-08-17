@@ -366,3 +366,57 @@
     opacity: 0.55;
 }
 
+.nuke-lower-inset {
+    position: absolute;
+
+    left: 55px;
+    top: 55px;
+
+    width: 420px;
+    height: 420px;
+
+    z-index: 30;
+
+    pointer-events: none;
+}
+
+.nuke-lower-window {
+    position: relative;
+
+    width: 420px;
+    height: 420px;
+
+    overflow: hidden;
+
+    background: transparent;
+}
+
+.nuke-lower-map {
+    position: absolute;
+
+    max-width: none;
+
+    display: block;
+}
+
+.player-dot-inset {
+    width: 16px;
+    height: 16px;
+
+    z-index: 40;
+}
+
+.player-dot-inset::before {
+    width: 14px;
+    height: 1.5px;
+}
+
+.player-dot-inset .player-name {
+    top: -7px;
+
+    max-width: 110px;
+
+    padding: 2px 5px;
+
+    font-size: 10px;
+}

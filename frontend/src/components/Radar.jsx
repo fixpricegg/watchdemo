@@ -1,3 +1,5 @@
+import { useRef } from "react";
+
 import { getMapConfig } from "../config/maps";
 import radarData from "../data/radar.json";
 
@@ -7,6 +9,8 @@ import KillFeed from "./KillFeed";
 import "./Radar.css";
 
 function Radar({ tickIndex }) {
+    const playerFloorState = useRef({});
+
     const mapConfig = getMapConfig(radarData.map);
 
     if (!mapConfig) {
@@ -72,6 +76,84 @@ function Radar({ tickIndex }) {
                     currentTick
                 ),
         }));
+    
+    
+    const isNuke =
+    radarData.map === "de_nuke" &&
+    Boolean(mapConfig.lowerImage);
+
+    const NUKE_ENTER_LOWER_Z = -560;
+    const NUKE_EXIT_LOWER_Z = -430;
+
+    const getNukeFloor = (z) => {
+        if (
+            isNuke &&
+            z !== null &&
+            z !== undefined &&
+            z <= NUKE_ENTER_LOWER_Z
+        ) {
+            return "lower";
+        }
+
+        return "upper";
+    };
+
+    const playersWithFloor =
+        playersWithCurrentPosition.map((player) => {
+            const pos = player.currentPosition;
+
+            let floor = "upper";
+
+            if (
+                isNuke &&
+                pos?.z !== null &&
+                pos?.z !== undefined
+            ) {
+                const previousFloor =
+                    playerFloorState.current[
+                        player.steamid
+                    ] ?? "upper";
+
+                if (previousFloor === "lower") {
+                    floor =
+                        pos.z < NUKE_EXIT_LOWER_Z
+                            ? "lower"
+                            : "upper";
+                } else {
+                    floor =
+                        pos.z <= NUKE_ENTER_LOWER_Z
+                            ? "lower"
+                            : "upper";
+                }
+
+                playerFloorState.current[
+                    player.steamid
+                ] = floor;
+            }
+
+            return {
+                ...player,
+                floor,
+            };
+        });
+
+    const alivePlayers =
+        playersWithFloor.filter(
+            (player) =>
+                player.currentPosition?.is_alive
+        );
+
+    const aliveLowerPlayers =
+        alivePlayers.filter(
+            (player) =>
+                player.floor === "lower"
+        );
+
+    const mainFloor = "upper";
+    const insetFloor = "lower";
+
+    const mainMapImage = mapConfig.image;
+    const insetMapImage = mapConfig.lowerImage;
 
     const bombStates =
         radarData.bomb?.states ?? [];
@@ -88,15 +170,113 @@ function Radar({ tickIndex }) {
         }
     }
 
-    const toImageCoordinates = (x, y) => ({
-        imageX:
-            (x - mapConfig.posX) /
-            mapConfig.scale,
+        const toFloorCoordinates = (
+        x,
+        y,
+        floor = "upper"
+    ) => {
+        if (
+            isNuke &&
+            floor === "lower"
+        ) {
+            return {
+                imageX:
+                    (x - mapConfig.lowerPosX) /
+                    mapConfig.lowerScaleX,
 
-        imageY:
-            (mapConfig.posY - y) /
-            mapConfig.scale,
-    });
+                imageY:
+                    (mapConfig.lowerPosY - y) /
+                    mapConfig.lowerScaleY,
+
+                imageSize:
+                    mapConfig.lowerImageSize ??
+                    1254,
+            };
+        }
+
+        return {
+            imageX:
+                (x - mapConfig.posX) /
+                mapConfig.scale,
+
+            imageY:
+                (mapConfig.posY - y) /
+                mapConfig.scale,
+
+            imageSize: 1024,
+        };
+    };
+
+    const toFloorPercent = (
+        x,
+        y,
+        floor
+    ) => {
+        const coordinates =
+            toFloorCoordinates(
+                x,
+                y,
+                floor
+            );
+
+        return {
+            left:
+                (
+                    coordinates.imageX /
+                    coordinates.imageSize
+                ) * 100,
+
+            top:
+                (
+                    coordinates.imageY /
+                    coordinates.imageSize
+                ) * 100,
+        };
+    };
+
+    const getInsetTransform = (floor) => {
+    if (floor === "lower") {
+        return {
+            scale: 0.47,
+            offsetX: -94,
+            offsetY: -70,
+        };
+    }
+
+    return {
+        scale: 340 / 1024,
+        offsetX: 0,
+        offsetY: 0,
+    };
+};
+
+    const toInsetCoordinates = (
+        x,
+        y,
+        floor
+    ) => {
+        const coordinates =
+            toFloorCoordinates(
+                x,
+                y,
+                floor
+            );
+
+        const transform =
+            getInsetTransform(floor);
+
+        return {
+            left:
+                coordinates.imageX *
+                    transform.scale +
+                transform.offsetX,
+
+            top:
+                coordinates.imageY *
+                    transform.scale +
+                transform.offsetY,
+        };
+    };
 
     const getBombStatusText = () => {
         if (!bombState) {
@@ -196,6 +376,20 @@ function Radar({ tickIndex }) {
             };
         })
         .filter(Boolean);
+    
+    const grenadesWithFloor =
+        activeGrenades.map((grenade) => ({
+            ...grenade,
+            floor: getNukeFloor(
+                grenade.currentPosition?.z
+            ),
+        }));
+
+    const lowerGrenades =
+        grenadesWithFloor.filter(
+            (grenade) =>
+                grenade.floor === "lower"
+        );
 
     const drawableBombStates = [
         "carried",
@@ -212,12 +406,45 @@ function Radar({ tickIndex }) {
         bombState.x !== null &&
         bombState.y !== null;
 
-    const bombCoordinates = canDrawBomb
-        ? toImageCoordinates(
-              bombState.x,
-              bombState.y
-          )
-        : null;
+    let bombFloor = "upper";
+
+    if (isNuke && bombState) {
+        const carrier =
+            playersWithFloor.find(
+                (player) =>
+                    player.name ===
+                    bombState.carrier_name
+            );
+
+        if (
+            bombState.state === "carried" &&
+            carrier
+        ) {
+            bombFloor = carrier.floor;
+        } else {
+            bombFloor =
+                getNukeFloor(bombState.z);
+        }
+    }
+
+    const showInset =
+        isNuke &&
+        (
+            aliveLowerPlayers.length > 0 ||
+            (
+                canDrawBomb &&
+                bombFloor === "lower"
+            ) ||
+            lowerGrenades.length > 0
+        );
+    
+    const insetTransform =
+        getInsetTransform(insetFloor);
+
+    const insetImageSize =
+        insetFloor === "lower"
+            ? (mapConfig.lowerImageSize ?? 1254)
+            : 1024;
 
     return (
         <section className="radar-section">
@@ -245,18 +472,183 @@ function Radar({ tickIndex }) {
 
                 <div className="radar-container">
                     <img
-                        src={mapConfig.image}
+                        src={mainMapImage}
                         alt={`${mapConfig.name} radar`}
                         className="radar-map"
                     />
 
+                    {showInset && (
+                        <div className="nuke-lower-inset">
+                            <div className="nuke-lower-window">
+                                <img
+                                    src={insetMapImage}
+                                    alt={`Nuke ${insetFloor} radar`}
+                                    className="nuke-lower-map"
+                                    style={{
+                                        width: `${
+                                            insetImageSize *
+                                            insetTransform.scale
+                                        }px`,
+
+                                        height: `${
+                                            insetImageSize *
+                                            insetTransform.scale
+                                        }px`,
+
+                                        left: `${insetTransform.offsetX}px`,
+                                        top: `${insetTransform.offsetY}px`,
+                                    }}
+                                />
+
+                                {playersWithFloor.map(
+                                    (player, index) => {
+                                        const pos =
+                                            player.currentPosition;
+
+                                        if (
+                                            !pos ||
+                                            player.floor !==
+                                                insetFloor
+                                        ) {
+                                            return null;
+                                        }
+
+                                        const team =
+                                            pos.team ||
+                                            player.team;
+
+                                        const aliveClass =
+                                            pos.is_alive
+                                                ? "alive-dot"
+                                                : "dead-dot";
+
+                                        const {
+                                            left,
+                                            top,
+                                        } =
+                                            toInsetCoordinates(
+                                                pos.x,
+                                                pos.y,
+                                                insetFloor
+                                            );
+                     
+                                        return (
+                                            <div
+                                                key={`inset-${player.steamid}`}
+                                                className={`player-dot player-dot-inset ${aliveClass} ${
+                                                    team === "CT"
+                                                        ? "ct-dot"
+                                                        : "t-dot"
+                                                }`}
+                                                style={{
+                                                    left: `${left}px`,
+                                                    top: `${top}px`,
+
+                                                    "--view-yaw": `${
+                                                        -(pos.yaw ?? 0)
+                                                    }deg`,
+                                                }}
+                                            >
+                                                <span className="player-name">
+                                                    {player.name}
+                                                </span>
+                                            </div>
+                                        );
+                                    }
+                                )}
+
+                                {lowerGrenades.map((grenade) => {
+                                    const {
+                                        left,
+                                        top,
+                                    } =
+                                        toInsetCoordinates(
+                                            grenade.currentPosition.x,
+                                            grenade.currentPosition.y,
+                                            "lower"
+                                        );
+
+                                    return (
+                                        <div
+                                            key={`lower-grenade-${grenade.track_id}`}
+                                            className={[
+                                                "grenade-marker",
+                                                `grenade-marker-${grenade.type}`,
+                                                `grenade-marker-${grenade.phase}`,
+                                                grenade.phase === "effect"
+                                                    ? "grenade-effect"
+                                                    : "grenade-projectile",
+                                            ].join(" ")}
+                                            style={{
+                                                left: `${left}px`,
+                                                top: `${top}px`,
+                                            }}
+                                        >
+                                            {grenade.phase === "projectile" && (
+                                                <>
+                                                    {grenade.type === "smoke" && "S"}
+                                                    {grenade.type === "flash" && "F"}
+                                                    {grenade.type === "he" && "HE"}
+                                                    {grenade.type === "molotov" && "M"}
+                                                    {grenade.type === "decoy" && "D"}
+                                                </>
+                                            )}
+
+                                            {grenade.phase === "effect" && (
+                                                <>
+                                                    {grenade.type === "smoke" && (
+                                                        <span className="grenade-effect-label">
+                                                            SMOKE
+                                                        </span>
+                                                    )}
+
+                                                    {grenade.type === "molotov" && (
+                                                        <span className="grenade-effect-label">
+                                                            FIRE
+                                                        </span>
+                                                    )}
+
+                                                    {grenade.type === "decoy" && "D"}
+                                                </>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+
+                                {canDrawBomb &&
+                                    bombFloor === insetFloor &&
+                                    (() => {
+                                        const coordinates =
+                                            toInsetCoordinates(
+                                                bombState.x,
+                                                bombState.y,
+                                                insetFloor
+                                            );
+
+                                        return (
+                                            <div
+                                                className={`bomb-marker bomb-marker-${bombState.state}`}
+                                                title={getBombStatusText()}
+                                                style={{
+                                                    left: `${coordinates.left}px`,
+                                                    top: `${coordinates.top}px`,
+                                                }}
+                                            >
+                                                C4
+                                            </div>
+                                        );
+                                    })()}
+                            </div>
+                        </div>
+                    )}
+
                     <KillFeed
                         kills={kills}
-                        players={playersWithCurrentPosition}
+                        players={playersWithFloor}
                         currentTick={currentTick}
                     />
 
-                    {playersWithCurrentPosition.map(
+                    {playersWithFloor.map(
                         (player, index) => {
                             const pos =
                                 player.currentPosition;
@@ -265,13 +657,21 @@ function Radar({ tickIndex }) {
                                 return null;
                             }
 
-                            const {
-                                imageX,
-                                imageY,
+                            if (
+                                isNuke &&
+                                player.floor !== mainFloor
+                            ) {
+                                return null;
+                            }
+
+                           const {
+                                left,
+                                top,
                             } =
-                                toImageCoordinates(
+                                toFloorPercent(
                                     pos.x,
-                                    pos.y
+                                    pos.y,
+                                    mainFloor
                                 );
 
                             const team =
@@ -300,8 +700,8 @@ function Radar({ tickIndex }) {
                                             : "Dead"
                                     }`}
                                     style={{
-                                        left: `${imageX}px`,
-                                        top: `${imageY}px`,
+                                        left: `${left}%`,
+                                        top: `${top}%`,
                                         "--view-yaw": `${
                                             -(
                                                 pos.yaw ??
@@ -320,19 +720,22 @@ function Radar({ tickIndex }) {
                         }
                     )}
 
-                    {activeGrenades.map(
+                    {grenadesWithFloor
+                        .filter(
+                            (grenade) =>
+                                !isNuke ||
+                                grenade.floor === "upper"
+                        )
+                        .map(
                         (grenade) => {
                             const {
-                                imageX,
-                                imageY,
+                                left,
+                                top,
                             } =
-                                toImageCoordinates(
-                                    grenade
-                                        .currentPosition
-                                        .x,
-                                    grenade
-                                        .currentPosition
-                                        .y
+                                toFloorPercent(
+                                    grenade.currentPosition.x,
+                                    grenade.currentPosition.y,
+                                    "upper"
                                 );
 
                             return (
@@ -354,8 +757,8 @@ function Radar({ tickIndex }) {
                                         "Unknown"
                                     }`}
                                     style={{
-                                        left: `${imageX}px`,
-                                        top: `${imageY}px`,
+                                        left: `${left}%`,
+                                        top: `${top}%`,
                                     }}
                                 >
                                     {grenade.phase ===
@@ -410,23 +813,31 @@ function Radar({ tickIndex }) {
                         }
                     )}
 
-                    {canDrawBomb && (
-                        <div
-                            className={`bomb-marker bomb-marker-${bombState.state}`}
-                            title={`${getBombStatusText()} · ${
-                                bombState.position_accuracy ===
-                                "carrier_position"
-                                    ? "Exact position"
-                                    : "Approximate position"
-                            }`}
-                            style={{
-                                left: `${bombCoordinates.imageX}px`,
-                                top: `${bombCoordinates.imageY}px`,
-                            }}
-                        >
-                            C4
-                        </div>
-                    )}
+                    {canDrawBomb &&
+                        (
+                            !isNuke ||
+                            bombFloor === mainFloor
+                        ) && (() => {
+                            const coordinates =
+                                toFloorPercent(
+                                    bombState.x,
+                                    bombState.y,
+                                    mainFloor
+                                );
+
+                            return (
+                                <div
+                                    className={`bomb-marker bomb-marker-${bombState.state}`}
+                                    title={getBombStatusText()}
+                                    style={{
+                                        left: `${coordinates.left}%`,
+                                        top: `${coordinates.top}%`,
+                                    }}
+                                >
+                                    C4
+                                </div>
+                            );
+                        })()}
                 </div>
 
                 <PlayerHud
