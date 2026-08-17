@@ -151,8 +151,9 @@ def create_player_position(
     is_alive,
     team=None,
     yaw=None,
+    include_z=False,
 ):
-    return {
+    position = {
         "tick": int(tick),
         "x": round(x),
         "y": round(y),
@@ -164,6 +165,11 @@ def create_player_position(
             else None
         ),
     }
+
+    if include_z:
+        position["z"] = round(z)
+
+    return position
 
 
 def get_player_position(radar_match, steamid, tick):
@@ -1183,6 +1189,7 @@ def build_radar_match(
                 row["is_alive"],
                 current_team,
                 row.get("yaw"),
+                include_z=(map_name == "de_nuke"),
             )
         )
 

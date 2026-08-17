@@ -4,6 +4,8 @@ import dust2Map from "../assets/maps/de_dust2_radar.png";
 import ancientMap from "../assets/maps/de_ancient_radar.png";
 import anubisMap from "../assets/maps/de_anubis_radar.png";
 import cacheMap from "../assets/maps/de_cache_radar.png";
+import nukeMap from "../assets/maps/de_nuke_radar.png";
+import nukeLowerMap from "../assets/maps/de_nuke_lower_radar.png";
 
 const maps = {
     de_inferno: {
@@ -52,6 +54,25 @@ const maps = {
     posX: -2000,
     posY: 3250,
     scale: 5.5,
+    },
+
+    de_nuke: {
+    name: "Nuke",
+
+    image: nukeMap,
+    lowerImage: nukeLowerMap,
+
+    posX: -3453,
+    posY: 2887,
+    scale: 7,
+
+    lowerImageSize: 1254,
+
+    lowerPosX: -1203.17,
+    lowerPosY: 1105.91,
+
+    lowerScaleX: 3.1517,
+    lowerScaleY: 3.1634,
     },
     
 };
