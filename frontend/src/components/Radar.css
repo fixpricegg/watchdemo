@@ -386,7 +386,7 @@
     width: 420px;
     height: 420px;
 
-    overflow: hidden;
+    overflow: visible;
 
     background: transparent;
 }
