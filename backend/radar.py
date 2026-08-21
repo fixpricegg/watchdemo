@@ -1,4 +1,4 @@
-import json
+import orjson
 from typing import Any
 
 import pandas as pd
@@ -353,63 +353,61 @@ def _first_true(rows, column_name):
     values = rows[column_name].fillna(False)
     return bool(values.astype(bool).any())
 
-
-def _find_carrier_row(tick_rows, preferred_steamid=None):
-    if "inventory" not in tick_rows.columns:
-        return None
-
-    carrier_rows = tick_rows[tick_rows["inventory"].apply(has_c4)]
-
-    if carrier_rows.empty:
-        return None
-
-    if preferred_steamid is not None and "steamid" in carrier_rows.columns:
-        preferred = carrier_rows[
-            carrier_rows["steamid"].apply(_safe_int) == int(preferred_steamid)
-        ]
-
-        if not preferred.empty:
-            return preferred.iloc[0]
-
-    return carrier_rows.iloc[0]
-
 def _find_event_player_position(
-    sampled_position_df,
+    position_lookup_by_steamid,
     event_tick,
     player_steamid=None,
-    player_name=None,
 ):
-    rows = sampled_position_df
-
-    if player_steamid is not None and "steamid" in rows.columns:
-        rows = rows[
-            rows["steamid"].apply(_safe_int)
-            == int(player_steamid)
-        ]
-    elif player_name is not None and "name" in rows.columns:
-        rows = rows[
-            rows["name"] == player_name
-        ]
-    else:
+    if player_steamid is None:
         return None
 
-    if rows.empty:
+    player_steamid = _safe_int(player_steamid)
+
+    if player_steamid is None:
         return None
 
-    rows = rows.copy()
-    rows["tick_distance"] = (
-        rows["tick"].astype(int) - int(event_tick)
-    ).abs()
-
-    rows = rows.sort_values(
-        ["tick_distance", "tick"]
+    rows = position_lookup_by_steamid.get(
+        player_steamid
     )
 
-    closest_row = rows.iloc[0]
+    if rows is None or rows.empty:
+        return None
 
-    # У нас radar sample каждые 8 тиков.
-    # Больше 16 тиков уже подозрительно далеко от события.
-    if int(closest_row["tick_distance"]) > RADAR_TICK_STEP * 2:
+    ticks = rows["tick"].to_numpy()
+
+    index = ticks.searchsorted(
+        int(event_tick)
+    )
+
+    candidates = []
+
+    if index < len(rows):
+        candidates.append(
+            rows.iloc[index]
+        )
+
+    if index > 0:
+        candidates.append(
+            rows.iloc[index - 1]
+        )
+
+    if not candidates:
+        return None
+
+    closest_row = min(
+        candidates,
+        key=lambda row: abs(
+            int(row["tick"])
+            - int(event_tick)
+        ),
+    )
+
+    tick_distance = abs(
+        int(closest_row["tick"])
+        - int(event_tick)
+    )
+
+    if tick_distance > RADAR_TICK_STEP * 2:
         return None
 
     return closest_row
@@ -434,6 +432,134 @@ def build_bomb_timeline(
     if sampled_position_df.empty:
         return [], normalize_bomb_events(bomb_event_frames, round_reset_ticks)
 
+    sampled_position_df = sampled_position_df.copy()
+
+    if "inventory" in sampled_position_df.columns:
+        sampled_position_df["_has_c4"] = [
+            has_c4(inventory)
+            for inventory in sampled_position_df["inventory"].tolist()
+        ]
+    else:
+        sampled_position_df["_has_c4"] = False
+
+    sampled_position_df["_steamid_int"] = pd.to_numeric(
+        sampled_position_df["steamid"],
+        errors="coerce",
+    )
+
+    if "is_bomb_planted" in sampled_position_df.columns:
+        sampled_position_df["_bomb_planted"] = (
+            sampled_position_df["is_bomb_planted"]
+            .fillna(False)
+            .astype(bool)
+        )
+    else:
+        sampled_position_df["_bomb_planted"] = False
+
+    if "is_bomb_dropped" in sampled_position_df.columns:
+        sampled_position_df["_bomb_dropped"] = (
+            sampled_position_df["is_bomb_dropped"]
+            .fillna(False)
+            .astype(bool)
+        )
+    else:
+        sampled_position_df["_bomb_dropped"] = False
+
+    sampled_ticks = (
+        sampled_position_df["tick"]
+        .dropna()
+        .astype(int)
+        .drop_duplicates()
+        .sort_values()
+        .tolist()
+    )
+
+    carrier_by_tick = (
+        sampled_position_df[
+            sampled_position_df["_has_c4"]
+        ]
+        .drop_duplicates("tick")
+        .set_index("tick")[
+            [
+                "steamid",
+                "name",
+                "X",
+                "Y",
+                "Z",
+            ]
+        ]
+        .to_dict("index")
+    )
+
+    planted_ticks = set(
+        sampled_position_df.loc[
+            sampled_position_df["_bomb_planted"],
+            "tick",
+        ]
+        .astype(int)
+        .tolist()
+    )
+
+    dropped_ticks = set(
+        sampled_position_df.loc[
+            sampled_position_df["_bomb_dropped"],
+            "tick",
+        ]
+        .astype(int)
+        .tolist()
+    )
+
+    player_row_by_key_df = sampled_position_df[
+        sampled_position_df["_steamid_int"].notna()
+    ].copy()
+
+    player_row_by_key_df["_steamid_int"] = (
+        player_row_by_key_df["_steamid_int"]
+        .astype(int)
+    )
+
+    player_row_by_key = (
+        player_row_by_key_df
+        .drop_duplicates(
+            ["tick", "_steamid_int"]
+        )
+        .set_index(
+            ["tick", "_steamid_int"]
+        )[
+            [
+                "steamid",
+                "name",
+                "X",
+                "Y",
+                "Z",
+            ]
+        ]
+        .to_dict("index")
+    )
+
+    position_lookup_df = sampled_position_df[
+        [
+            "tick",
+            "steamid",
+            "name",
+            "X",
+            "Y",
+            "Z",
+        ]
+    ].copy()
+
+    position_lookup_df["steamid"] = pd.to_numeric(
+        position_lookup_df["steamid"],
+        errors="coerce",
+    )
+
+    position_lookup_by_steamid = {
+        int(steamid): group.sort_values("tick")
+        for steamid, group in position_lookup_df[
+            position_lookup_df["steamid"].notna()
+        ].groupby("steamid", sort=False)
+    }
+
     events = normalize_bomb_events(bomb_event_frames, round_reset_ticks)
     event_index = 0
 
@@ -452,8 +578,7 @@ def build_bomb_timeline(
 
     states = []
 
-    for tick, tick_rows in sampled_position_df.groupby("tick", sort=True):
-        tick = int(tick)
+    for tick in sampled_ticks:
 
         # Apply every event that happened since the previous radar sample.
         while event_index < len(events) and events[event_index]["tick"] <= tick:
@@ -462,10 +587,11 @@ def build_bomb_timeline(
             event_tick = int(event["tick"])
 
             event_player_row = _find_event_player_position(
-                sampled_position_df,
+                position_lookup_by_steamid,
                 event_tick=event_tick,
-                player_steamid=event.get("player_steamid"),
-                player_name=event.get("player_name"),
+                player_steamid=event.get(
+                    "player_steamid"
+                ),
             )
 
             event_x = None
@@ -618,12 +744,9 @@ def build_bomb_timeline(
 
             event_index += 1
 
-        carrier_row = _find_carrier_row(
-            tick_rows,
-            preferred_steamid=current.get("carrier_steamid"),
-        )
-        planted_flag = _first_true(tick_rows, "is_bomb_planted")
-        dropped_flag = _first_true(tick_rows, "is_bomb_dropped")
+        carrier_row = carrier_by_tick.get(tick)
+        planted_flag = tick in planted_ticks
+        dropped_flag = tick in dropped_ticks
 
         # Events own planted/terminal states until the next round reset.
         if current["state"] not in LOCKED_BOMB_STATES:
@@ -674,13 +797,16 @@ def build_bomb_timeline(
 
         if current["state"] == "carried":
             # Re-check inventory first; if unavailable, use the event carrier row.
-            if carrier_row is None and current.get("carrier_steamid") is not None:
-                matching_rows = tick_rows[
-                    tick_rows["steamid"].apply(_safe_int)
-                    == int(current["carrier_steamid"])
-                ]
-                if not matching_rows.empty:
-                    carrier_row = matching_rows.iloc[0]
+            if (
+                    carrier_row is None
+                    and current.get("carrier_steamid") is not None
+            ):
+                carrier_row = player_row_by_key.get(
+                    (
+                        tick,
+                        int(current["carrier_steamid"]),
+                    )
+                )
 
             if carrier_row is not None:
                 current["carrier_steamid"] = _safe_int(carrier_row.get("steamid"))
@@ -1163,54 +1289,131 @@ def build_radar_match(
     radar_match["bomb"]["states"] = bomb_states
     radar_match["bomb"]["events"] = bomb_events
 
-    for _, row in sampled_position_df.iterrows():
-        if pd.isna(row["X"]) or pd.isna(row["Y"]) or pd.isna(row["Z"]):
+    for row in sampled_position_df.itertuples(index=False):
+        if (
+                pd.isna(row.X)
+                or pd.isna(row.Y)
+                or pd.isna(row.Z)
+                or pd.isna(row.steamid)
+        ):
             continue
 
-        steamid = int(row["steamid"])
+        steamid = int(row.steamid)
 
-        fallback_team = get_team_name(team_by_steamid.get(steamid))
-        current_team = get_team_from_row(row, fallback_team)
+        fallback_team = get_team_name(
+            team_by_steamid.get(steamid)
+        )
+
+        team_num = getattr(
+            row,
+            "team_num",
+            None,
+        )
+
+        if (
+                team_num is not None
+                and not pd.isna(team_num)
+        ):
+            current_team = get_team_name(
+                int(team_num)
+            )
+        else:
+            current_team = fallback_team
 
         if steamid not in radar_match["players"]:
             radar_match["players"][steamid] = {
-                "name": row["name"],
+                "name": row.name,
                 "team": fallback_team,
                 "positions": [],
                 "states": [],
             }
 
-        radar_match["players"][steamid]["positions"].append(
+        radar_match["players"][steamid][
+            "positions"
+        ].append(
             create_player_position(
-                row["tick"],
-                row["X"],
-                row["Y"],
-                row["Z"],
-                row["is_alive"],
+                row.tick,
+                row.X,
+                row.Y,
+                row.Z,
+                row.is_alive,
                 current_team,
-                row.get("yaw"),
-                include_z=(map_name == "de_nuke"),
+                getattr(row, "yaw", None),
+                include_z=(
+                        map_name == "de_nuke"
+                ),
             )
         )
 
-    for steamid, player in radar_match["players"].items():
-        player_rows = valid_position_df[
-            valid_position_df["steamid"].astype(int) == int(steamid)
-            ].sort_values("tick")
+    state_columns = [
+        "tick",
+        "steamid",
+        "health",
+        "armor",
+        "has_helmet",
+        "active_weapon_name",
+        "inventory",
+    ]
 
-        previous_state = None
+    state_df = (
+        sampled_position_df[state_columns]
+        .sort_values(["steamid", "tick"])
+    )
 
-        for _, row in player_rows.iterrows():
-            current_state = create_player_state(row)
+    previous_states = {}
 
-            if not player_state_changed(
-                    previous_state,
-                    current_state,
-            ):
-                continue
+    for row in state_df.itertuples(index=False):
+        if pd.isna(row.steamid):
+            continue
 
-            player["states"].append(current_state)
-            previous_state = current_state
+        steamid = int(row.steamid)
+
+        player = radar_match["players"].get(
+            steamid
+        )
+
+        if player is None:
+            continue
+
+        current_state = {
+            "tick": int(row.tick),
+
+            "health": normalize_optional_int(
+                row.health
+            ),
+
+            "armor": normalize_optional_int(
+                row.armor
+            ),
+
+            "has_helmet": normalize_optional_bool(
+                row.has_helmet
+            ),
+
+            "active_weapon": normalize_optional_string(
+                row.active_weapon_name
+            ),
+
+            "inventory": normalize_inventory(
+                row.inventory
+            ),
+        }
+
+        previous_state = previous_states.get(
+            steamid
+        )
+
+        if not player_state_changed(
+                previous_state,
+                current_state,
+        ):
+            continue
+
+        player["states"].append(
+            current_state
+        )
+
+        previous_states[steamid] = current_state
 
     return radar_match
 
@@ -1277,5 +1480,13 @@ def export_radar_json(
     radar_match["rounds"] = timeline_rounds
     radar_match["events"] = events
 
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(radar_match, f, ensure_ascii=False)
+    json_bytes = orjson.dumps(
+        radar_match,
+        option=(
+            orjson.OPT_NON_STR_KEYS
+            | orjson.OPT_SERIALIZE_NUMPY
+        ),
+    )
+
+    with open(output_path, "wb") as f:
+        f.write(json_bytes)
