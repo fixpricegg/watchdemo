@@ -2,4 +2,3 @@ demoparser2
 pandas
 Pillow
 orjson
-git
