@@ -357,3 +357,43 @@
         padding: 24px 20px;
     }
 }
+
+.page-link {
+    display: inline-block;
+    text-decoration: none;
+}
+
+.match-page {
+    width: min(1200px, calc(100% - 40px));
+    margin: 48px auto 120px;
+}
+
+.match-section {
+    margin-bottom: 72px;
+}
+
+.match-section-header {
+    margin-bottom: 24px;
+}
+
+.match-section-header h1,
+.match-section-header h2 {
+    margin: 0 0 8px;
+}
+
+.match-section-header p {
+    color: #8f9bad;
+}
+
+.match-placeholder {
+    min-height: 160px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border: 1px dashed #343c4b;
+    border-radius: 12px;
+
+    color: #667286;
+}

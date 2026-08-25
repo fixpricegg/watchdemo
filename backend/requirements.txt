@@ -4,4 +4,4 @@ Pillow
 orjson
 fastapi
 uvicorn
-
+python-multipart
