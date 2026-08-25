@@ -1,15 +1,18 @@
 import { useRef } from "react";
 
 import { getMapConfig } from "../config/maps";
-import radarData from "../data/radar.json";
 
 import PlayerHud from "./PlayerHud";
 import KillFeed from "./KillFeed";
 
 import "./Radar.css";
 
-function Radar({ tickIndex }) {
+function Radar({ tickIndex, radarData }) {
     const playerFloorState = useRef({});
+
+    if (!radarData) {
+        return null;
+    }
 
     const mapConfig = getMapConfig(radarData.map);
 

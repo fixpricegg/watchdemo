@@ -1,12 +1,16 @@
-import radarData from "../data/radar.json";
 import "./Timeline.css";
 
 function Timeline({
+    radarData,
     tickIndex,
     setTickIndex,
     isPlaying,
     setIsPlaying,
 }) {
+    
+    if (!radarData?.rounds?.length) {
+        return null;
+    }
     const rounds = radarData.rounds;
     const events = radarData.events || [];
 

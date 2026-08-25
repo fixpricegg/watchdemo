@@ -183,3 +183,177 @@
   }
 }
 
+.upload-page {
+    width: min(900px, calc(100% - 40px));
+    margin: 60px auto 120px;
+}
+
+.upload-card {
+    text-align: center;
+    padding: 48px 40px;
+    border: 1px solid #2b3240;
+    border-radius: 16px;
+    background: #181c25;
+}
+
+.upload-eyebrow {
+    margin: 0 0 10px;
+    color: #8b97aa;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.upload-card h1 {
+    margin: 0;
+    font-size: 32px;
+}
+
+.upload-description {
+    max-width: 500px;
+    margin: 14px auto 28px;
+    color: #9aa5b5;
+}
+
+.upload-controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.primary-button {
+    padding: 10px 18px;
+    border: 1px solid #46536a;
+    border-radius: 8px;
+    background: #252c39;
+    color: #ffffff;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.primary-button:hover {
+    background: #303949;
+}
+
+.primary-button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.upload-error {
+    margin-top: 18px;
+    color: #ef6b6b;
+}
+
+.uploaded-file {
+    margin: 18px 0 0;
+    color: #8b97aa;
+    font-size: 13px;
+}
+
+.player-selection {
+    margin-top: 32px;
+    padding: 32px;
+    border: 1px solid #2b3240;
+    border-radius: 16px;
+    background: #181c25;
+}
+
+.player-selection-header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.player-selection-header h2 {
+    margin: 0 0 8px;
+}
+
+.player-selection-header p {
+    margin: 0;
+    color: #8b97aa;
+}
+
+.teams-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}
+
+.team-column {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.team-title {
+    margin: 0 0 4px;
+    font-size: 14px;
+}
+
+.ct-title {
+    color: #67adff;
+}
+
+.t-title {
+    color: #f1b44c;
+}
+
+.player-card {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    padding: 14px 16px;
+
+    border: 1px solid #303848;
+    border-radius: 9px;
+
+    background: #1d222c;
+    color: #ffffff;
+
+    cursor: pointer;
+    text-align: left;
+}
+
+.player-card:hover {
+    background: #252c38;
+    border-color: #46536a;
+}
+
+.player-card.selected {
+    border-color: #7b8ca8;
+    background: #293140;
+}
+
+.select-player-name {
+    color: #f3f6fb;
+    font-weight: 600;
+}
+
+.player-team {
+    color: #7f8b9d;
+    font-size: 12px;
+}
+
+.analyze-section {
+    margin-top: 28px;
+    text-align: center;
+}
+
+@media (max-width: 700px) {
+    .teams-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .upload-card {
+        padding: 32px 20px;
+    }
+
+    .player-selection {
+        padding: 24px 20px;
+    }
+}

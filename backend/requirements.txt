@@ -2,3 +2,6 @@ demoparser2
 pandas
 Pillow
 orjson
+fastapi
+uvicorn
+
