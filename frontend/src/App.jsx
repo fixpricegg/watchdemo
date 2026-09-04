@@ -1,14 +1,22 @@
 import { useEffect, useState } from "react";
+import {
+    Route,
+    Routes,
+    useNavigate,
+} from "react-router-dom";
 
 import "./App.css";
-import Header from "./components/Header";
-import Summary from "./components/Summary";
-import Radar from "./components/Radar";
-import Timeline from "./components/Timeline";
 
+import Header from "./components/Header";
+
+import HomePage from "./pages/HomePage";
+import UploadPage from "./pages/UploadPage";
+import MatchPage from "./pages/MatchPage";
 
 
 function App() {
+    const navigate = useNavigate();
+
     const [tickIndex, setTickIndex] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
 
@@ -20,19 +28,21 @@ function App() {
     const [isUploading, setIsUploading] = useState(false);
     const [uploadError, setUploadError] = useState("");
 
-    // Пока null.
-    // На следующем шаге сюда положим настоящий ответ backend.
     const [analysisResult, setAnalysisResult] = useState(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [analysisError, setAnalysisError] = useState("");
 
+
     const liveRadarData = analysisResult
         ? {
             ...analysisResult.radar,
-            rounds: analysisResult.timeline_rounds ?? [],
-            events: analysisResult.events ?? [],
+            rounds:
+                analysisResult.timeline_rounds ?? [],
+            events:
+                analysisResult.events ?? [],
         }
         : null;
+
 
     const masterTicks = (
         liveRadarData?.bomb?.states ?? []
@@ -42,6 +52,7 @@ function App() {
         0,
         masterTicks.length - 1
     );
+
 
     useEffect(() => {
         if (!isPlaying) {
@@ -65,18 +76,25 @@ function App() {
 
     async function handleUpload() {
         if (!demoFile) {
-            setUploadError("Сначала выбери .dem файл");
+            setUploadError(
+                "Сначала выбери .dem файл"
+            );
             return;
         }
 
         setIsUploading(true);
         setUploadError("");
+
         setPlayers([]);
         setSelectedPlayer(null);
         setAnalysisResult(null);
 
         const formData = new FormData();
-        formData.append("file", demoFile);
+
+        formData.append(
+            "file",
+            demoFile
+        );
 
         try {
             const response = await fetch(
@@ -91,22 +109,34 @@ function App() {
 
             if (!response.ok) {
                 throw new Error(
-                    data.detail || "Ошибка загрузки демки"
+                    data.detail ||
+                    "Ошибка загрузки демки"
                 );
             }
 
-            setPlayers(data.players ?? []);
-            setUploadedFilename(data.filename ?? "");
+            setPlayers(
+                data.players ?? []
+            );
+
+            setUploadedFilename(
+                data.filename ?? ""
+            );
 
         } catch (error) {
-            setUploadError(error.message);
+            setUploadError(
+                error.message
+            );
         } finally {
             setIsUploading(false);
         }
     }
 
+
     async function handleAnalyze() {
-        if (!selectedPlayer || !uploadedFilename) {
+        if (
+            !selectedPlayer ||
+            !uploadedFilename
+        ) {
             return;
         }
 
@@ -118,230 +148,146 @@ function App() {
                 "http://127.0.0.1:8000/demo/analyze",
                 {
                     method: "POST",
+
                     headers: {
-                        "Content-Type": "application/json",
+                        "Content-Type":
+                            "application/json",
                     },
+
                     body: JSON.stringify({
-                        filename: uploadedFilename,
-                        steamid: selectedPlayer.steamid,
+                        filename:
+                            uploadedFilename,
+
+                        steamid:
+                            selectedPlayer.steamid,
                     }),
                 }
             );
 
-            const data = await response.json();
+            const data =
+                await response.json();
 
             if (!response.ok) {
                 throw new Error(
-                    typeof data.detail === "string"
+                    typeof data.detail ===
+                    "string"
                         ? data.detail
                         : "Ошибка анализа демки"
                 );
             }
 
-            console.log("ANALYSIS RESULT:", data.result);
-
             setTickIndex(0);
             setIsPlaying(false);
-            setAnalysisResult(data.result);
+
+            setAnalysisResult(
+                data.result
+            );
+
+            navigate("/match");
 
         } catch (error) {
-            setAnalysisError(error.message);
+            setAnalysisError(
+                error.message
+            );
         } finally {
             setIsAnalyzing(false);
         }
     }
-
-    const ctPlayers = players.filter(
-        (player) => player.team === "CT"
-    );
-
-    const tPlayers = players.filter(
-        (player) => player.team === "T"
-    );
 
 
     return (
         <div>
             <Header />
 
-            {!analysisResult && (
-                <main className="upload-page">
+            <Routes>
 
-                    <section className="upload-card">
-                        <p className="upload-eyebrow">
-                            CS2 Demo Analyzer
-                        </p>
+                <Route
+                    path="/"
+                    element={
+                        <HomePage />
+                    }
+                />
 
-                        <h1>Analyze your match</h1>
+                <Route
+                    path="/upload"
+                    element={
+                        <UploadPage
+                            demoFile={demoFile}
+                            setDemoFile={setDemoFile}
 
-                        <p className="upload-description">
-                            Upload a CS2 demo and choose the player
-                            you want to analyze.
-                        </p>
+                            players={players}
 
-                        <div className="upload-controls">
-                            <input
-                                type="file"
-                                accept=".dem"
-                                onChange={(event) => {
-                                    setDemoFile(
-                                        event.target.files[0] ?? null
-                                    );
-                                }}
-                            />
+                            uploadedFilename={
+                                uploadedFilename
+                            }
 
-                            <button
-                                className="primary-button"
-                                onClick={handleUpload}
-                                disabled={isUploading}
-                            >
-                                {isUploading
-                                    ? "Uploading..."
-                                    : "Upload demo"}
-                            </button>
-                        </div>
+                            selectedPlayer={
+                                selectedPlayer
+                            }
 
-                        {uploadError && (
-                            <p className="upload-error">
-                                {uploadError}
-                            </p>
-                        )}
+                            setSelectedPlayer={
+                                setSelectedPlayer
+                            }
 
-                        {uploadedFilename && (
-                            <p className="uploaded-file">
-                                {uploadedFilename}
-                            </p>
-                        )}
-                    </section>
+                            isUploading={
+                                isUploading
+                            }
 
+                            uploadError={
+                                uploadError
+                            }
 
-                    {players.length > 0 && (
-                        <section className="player-selection">
-                            <div className="player-selection-header">
-                                <h2>Choose your player</h2>
+                            handleUpload={
+                                handleUpload
+                            }
 
-                                <p>
-                                    Select yourself from the match.
-                                </p>
-                            </div>
+                            handleAnalyze={
+                                handleAnalyze
+                            }
 
+                            isAnalyzing={
+                                isAnalyzing
+                            }
 
-                            <div className="teams-grid">
+                            analysisError={
+                                analysisError
+                            }
+                        />
+                    }
+                />
 
-                                <div className="team-column">
-                                    <h3 className="team-title ct-title">
-                                        CT
-                                    </h3>
+                <Route
+                    path="/match"
+                    element={
+                        <MatchPage
+                            analysisResult={
+                                analysisResult
+                            }
 
-                                    {ctPlayers.map((player) => (
-                                        <button
-                                            key={player.steamid}
-                                            className={
-                                                selectedPlayer?.steamid ===
-                                                player.steamid
-                                                    ? "player-card selected"
-                                                    : "player-card"
-                                            }
-                                            onClick={() =>
-                                                setSelectedPlayer(player)
-                                            }
-                                        >
-                                            <span className="select-player-name">
-                                                {player.name}
-                                            </span>
+                            radarData={
+                                liveRadarData
+                            }
 
-                                            <span className="player-team">
-                                                CT
-                                            </span>
-                                        </button>
-                                    ))}
-                                </div>
+                            tickIndex={
+                                tickIndex
+                            }
 
+                            setTickIndex={
+                                setTickIndex
+                            }
 
-                                <div className="team-column">
-                                    <h3 className="team-title t-title">
-                                        T
-                                    </h3>
+                            isPlaying={
+                                isPlaying
+                            }
 
-                                    {tPlayers.map((player) => (
-                                        <button
-                                            key={player.steamid}
-                                            className={
-                                                selectedPlayer?.steamid ===
-                                                player.steamid
-                                                    ? "player-card selected"
-                                                    : "player-card"
-                                            }
-                                            onClick={() =>
-                                                setSelectedPlayer(player)
-                                            }
-                                        >
-                                            <span className="select-player-name">
-                                                {player.name}
-                                            </span>
+                            setIsPlaying={
+                                setIsPlaying
+                            }
+                        />
+                    }
+                />
 
-                                            <span className="player-team">
-                                                T
-                                            </span>
-                                        </button>
-                                    ))}
-                                </div>
-
-                            </div>
-
-
-                            {selectedPlayer && (
-                                <div className="analyze-section">
-                                    <p>
-                                        Selected:
-                                        {" "}
-                                        <strong>
-                                            {selectedPlayer.name}
-                                        </strong>
-                                    </p>
-
-                                    <button
-                                        className="primary-button"
-                                        onClick={handleAnalyze}
-                                        disabled={isAnalyzing}
-                                    >
-                                        {isAnalyzing
-                                            ? "Analyzing..."
-                                            : "Analyze player"}
-                                    </button>
-
-                                    {analysisError && (
-                                        <p className="upload-error">
-                                            {analysisError}
-                                        </p>
-                                    )}
-                                </div>
-                            )}
-                        </section>
-                    )}
-
-                </main>
-            )}
-
-
-            {analysisResult && liveRadarData && (
-                <>
-                    <Summary report={analysisResult.report} />
-
-                    <Radar
-                        tickIndex={tickIndex}
-                        radarData={liveRadarData}
-                    />
-
-                    <Timeline
-                        radarData={liveRadarData}
-                        tickIndex={tickIndex}
-                        setTickIndex={setTickIndex}
-                        isPlaying={isPlaying}
-                        setIsPlaying={setIsPlaying}
-                    />
-                </>
-            )}
+            </Routes>
         </div>
     );
 }
