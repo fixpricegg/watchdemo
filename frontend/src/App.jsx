@@ -287,6 +287,11 @@ function App() {
                     }
                 />
 
+                <Route
+                    path="*"
+                    element={<HomePage />}
+                />
+
             </Routes>
         </div>
     );
