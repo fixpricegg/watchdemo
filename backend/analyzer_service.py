@@ -2,6 +2,7 @@ from demoparser2 import DemoParser
 from missed_trade import get_possible_missed_trades
 from report import generate_report
 import radar
+import information
 import pandas as pd
 
 TICKRATE = 64
@@ -613,6 +614,7 @@ def analyze_demo(demo_path, player):
             "inventory",
             "is_bomb_dropped",
             "is_bomb_planted",
+            "approximate_spotted_by",
         ])
     except Exception as e:
         print("POSITION PARSE WITH TEAM ERROR:", e)
@@ -634,9 +636,47 @@ def analyze_demo(demo_path, player):
             "inventory",
             "is_bomb_dropped",
             "is_bomb_planted",
+            "approximate_spotted_by",
         ])
 
         position_df["team_num"] = None
+
+    # =========================
+    # 4.1.0 Information model
+    # =========================
+
+    spot_events = information.build_spot_events(
+        position_df,
+        round_intervals,
+    )
+
+    team_spot_windows = (
+        information.build_team_spot_windows(
+            spot_events
+        )
+    )
+
+    team_observations = (
+        information.build_team_observations(
+            position_df,
+            round_intervals,
+        )
+    )
+
+    print(
+        f"Team observations: "
+        f"{len(team_observations)}"
+    )
+
+    print()
+    print("INFORMATION MODEL:")
+    print(f"Spot events: {len(spot_events)}")
+    print(
+        f"Team spot windows: "
+        f"{len(team_spot_windows)}"
+    )
+
+    print()
 
     # =========================
     # 4.1.1 Timeline score
@@ -1184,3 +1224,4 @@ def analyze_demo(demo_path, player):
         "stats": stats,
         "report_text": report_text,
     }
+
