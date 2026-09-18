@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520">
+  <style>
+    text { font-family: Arial, sans-serif; fill: #111; }
+    .title { font-size: 28px; font-weight: 700; }
+    .label { font-size: 17px; }
+    .date { font-size: 14px; fill: #444; }
+    .axis { stroke: #999; stroke-width: 1; }
+    .bar { fill: #5b7cfa; rx: 6; ry: 6; }
+    .done { fill: #6b7280; rx: 6; ry: 6; }
+    .milestone { fill: #111827; }
+  </style>
+  <text x="30" y="42" class="title">WatchDemo — план разработки ИВР</text>
+  <text x="390" y="78" class="date">май</text><text x="500" y="78" class="date">июнь</text><text x="610" y="78" class="date">июль</text><text x="720" y="78" class="date">август</text><text x="830" y="78" class="date">сентябрь</text><text x="950" y="78" class="date">октябрь</text><text x="1070" y="78" class="date">ноябрь</text>
+  <line x1="360" y1="90" x2="1160" y2="90" class="axis"/>
+  <text x="30" y="125" class="label">Парсер, статистика, радар</text><rect x="390" y="108" width="440" height="24" class="done"/>
+  <text x="30" y="170" class="label">Информация и геометрия карты</text><rect x="830" y="153" width="70" height="24" class="done"/>
+  <text x="30" y="215" class="label">Окончательная заявка</text><rect x="895" y="198" width="35" height="24" class="bar"/>
+  <text x="30" y="260" class="label">БД, аккаунт, сохранение отчётов</text><rect x="900" y="243" width="75" height="24" class="bar"/>
+  <text x="30" y="305" class="label">3–5 правил анализа</text><rect x="900" y="288" width="125" height="24" class="bar"/>
+  <text x="30" y="350" class="label">Единый сценарий и тестирование</text><rect x="955" y="333" width="145" height="24" class="bar"/>
+  <text x="30" y="395" class="label">Доработка и стабилизация</text><rect x="1020" y="378" width="90" height="24" class="bar"/>
+  <text x="30" y="440" class="label">Подготовка к защите</text><rect x="1110" y="423" width="45" height="24" class="bar"/>
+  <polygon points="975,468 985,478 975,488 965,478" class="milestone"/><text x="995" y="483" class="date">1 окт — показ кода №2</text>
+  <text x="30" y="510" class="date">5 ноября — продукт и отчёт; 19–21 ноября — защита ИВР</text>
+</svg>
