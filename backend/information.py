@@ -314,6 +314,36 @@ def enemy_team(team):
 
     return None
 
+def get_information_freshness(age_seconds):
+    if age_seconds is None:
+        return {
+            "level": "unknown",
+            "score": 0.0,
+        }
+
+    if age_seconds <= 2.0:
+        return {
+            "level": "very_fresh",
+            "score": 1.0,
+        }
+
+    if age_seconds <= 5.0:
+        return {
+            "level": "fresh",
+            "score": 0.75,
+        }
+
+    if age_seconds <= 10.0:
+        return {
+            "level": "old",
+            "score": 0.4,
+        }
+
+    return {
+        "level": "stale",
+        "score": 0.1,
+    }
+
 def build_team_observations(
     position_df,
     round_intervals,
@@ -689,5 +719,12 @@ def get_team_visual_state_at_tick(
             item["age_seconds"] = 0.0
         else:
             item["status"] = "last_known"
+
+        freshness = get_information_freshness(
+            item["age_seconds"]
+        )
+
+        item["freshness"] = freshness["level"]
+        item["freshness_score"] = freshness["score"]
 
     return knowledge

@@ -3,7 +3,11 @@ from missed_trade import get_possible_missed_trades
 from report import generate_report
 import radar
 import information
+import map_geometry
+import candidates
+import context
 import pandas as pd
+
 
 TICKRATE = 64
 ROUND_TIME_SECONDS = 115
@@ -663,20 +667,64 @@ def analyze_demo(demo_path, player):
         )
     )
 
-    print(
-        f"Team observations: "
-        f"{len(team_observations)}"
-    )
+    # Geometry v1 сейчас реализована только для Nuke.
+    # Для остальных карт analysis-core пока не запускаем,
+    # чтобы случайно не анализировать их геометрией Nuke.
+    geometry = None
+    all_candidate_events = []
+    candidate_contexts = []
 
-    print()
-    print("INFORMATION MODEL:")
-    print(f"Spot events: {len(spot_events)}")
-    print(
-        f"Team spot windows: "
-        f"{len(team_spot_windows)}"
-    )
+    if map_name == "de_nuke":
+        geometry = map_geometry.MapGeometry(
+            "maps/de_nuke_nav.json"
+        )
 
-    print()
+        # =========================
+        # 4.1.0.1 Candidate moments
+        # =========================
+
+        for round_data in timeline_rounds:
+            round_number = int(
+                round_data["round"]
+            )
+
+            round_candidates = (
+                candidates.detect_player_enters_enemy_region(
+                    geometry=geometry,
+                    position_df=position_df,
+                    team_observations=team_observations,
+                    team_spot_windows=team_spot_windows,
+                    player_name=player,
+                    round_number=round_number,
+                    round_start_tick=int(
+                        round_data["live_start_tick"]
+                    ),
+                    round_end_tick=int(
+                        round_data["end_tick"]
+                    ),
+                    step_ticks=16,
+                )
+            )
+
+            all_candidate_events.extend(
+                round_candidates
+            )
+
+        # =========================
+        # 4.1.0.2 Decision context
+        # =========================
+
+        candidate_contexts = (
+            context.build_contexts(
+                geometry=geometry,
+                position_df=position_df,
+                deaths_df=deaths_clean,
+                team_spot_windows=team_spot_windows,
+                candidates=all_candidate_events,
+                window_ticks=64,
+                outcome_ticks=192,
+            )
+        )
 
     # =========================
     # 4.1.1 Timeline score
