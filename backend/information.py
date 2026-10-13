@@ -692,6 +692,7 @@ def get_team_visual_state_at_tick(
     round_number,
     observer_team,
     tick,
+    deaths_df=None,
 ):
     knowledge = get_team_knowledge_at_tick(
         observations,
@@ -699,6 +700,55 @@ def get_team_visual_state_at_tick(
         observer_team,
         tick,
     )
+
+    dead_target_ids = set()
+
+    if (
+        deaths_df is not None
+        and not deaths_df.empty
+    ):
+        required_columns = {
+            "round",
+            "tick",
+            "user_steamid",
+        }
+
+        missing_columns = (
+            required_columns
+            - set(deaths_df.columns)
+        )
+
+        if missing_columns:
+            raise ValueError(
+                "Missing columns for lifecycle deaths: "
+                f"{sorted(missing_columns)}"
+            )
+
+        deaths_before_tick = deaths_df[
+            (deaths_df["round"] == round_number)
+            & (deaths_df["tick"] <= tick)
+        ]
+
+        for steamid in deaths_before_tick[
+            "user_steamid"
+        ].dropna():
+            normalized = normalize_steamid(
+                steamid
+            )
+
+            if normalized is not None:
+                dead_target_ids.add(
+                    normalized
+                )
+
+    knowledge = [
+        item
+        for item in knowledge
+        if (
+            item["target_steamid"]
+            not in dead_target_ids
+        )
+    ]
 
     active_targets = set()
 
@@ -713,18 +763,18 @@ def get_team_visual_state_at_tick(
             )
 
     for item in knowledge:
-        if item["target_steamid"] in active_targets:
-            item["status"] = "currently_spotted"
+        if (
+            item["target_steamid"]
+            in active_targets
+        ):
+            item["status"] = (
+                "currently_spotted"
+            )
             item["age_ticks"] = 0
             item["age_seconds"] = 0.0
         else:
-            item["status"] = "last_known"
-
-        freshness = get_information_freshness(
-            item["age_seconds"]
-        )
-
-        item["freshness"] = freshness["level"]
-        item["freshness_score"] = freshness["score"]
+            item["status"] = (
+                "last_known"
+            )
 
     return knowledge

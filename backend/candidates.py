@@ -14,6 +14,7 @@ def detect_player_enters_enemy_region(
     round_number,
     round_start_tick,
     round_end_tick,
+    deaths_df,
     step_ticks=DEFAULT_STEP_TICKS,
 ):
     """
@@ -81,6 +82,7 @@ def detect_player_enters_enemy_region(
                 round_number=round_number,
                 observer_team=observer_team,
                 tick=tick,
+                deaths_df=deaths_df,
             )
         )
 

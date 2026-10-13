@@ -2,10 +2,14 @@ from demoparser2 import DemoParser
 from missed_trade import get_possible_missed_trades
 from report import generate_report
 import radar
+from bomb_entities import parse_bomb_entities
 import information
 import map_geometry
 import candidates
 import context
+import detectors
+import episodes
+import episode_context
 import pandas as pd
 
 
@@ -75,9 +79,16 @@ def get_game_ticks_between(start_tick, event_tick, live_ticks_df):
     ]
     return ticks_in_range["tick"].nunique()
 
-def safe_parse_event(parser, event_name):
+def safe_parse_event(parser, event_name, player_props=None):
     try:
-        result = parser.parse_event(event_name)
+        if player_props:
+            try:
+                result = parser.parse_event(event_name, player=player_props)
+            except Exception as e:
+                print(f"WARNING: {event_name} coordinates unavailable: {e}")
+                result = parser.parse_event(event_name)
+        else:
+            result = parser.parse_event(event_name)
 
         if isinstance(result, pd.DataFrame):
             return result
@@ -289,17 +300,23 @@ def analyze_demo(demo_path, player):
     # =========================
     # 2. Deaths
     # =========================
-    deaths = parser.parse_event("player_death")
+    deaths_raw = parser.parse_event("player_death")
 
-    if deaths.empty:
+    if deaths_raw.empty:
         raise ValueError(
             "В демке не найдено событий player_death."
         )
 
-    deaths = clean_deaths(deaths)
+    # Полный поток смертей нужен для lifecycle.
+    # Здесь ничего не удаляем по оружию или причине смерти.
+    lifecycle_deaths_raw = deaths_raw.copy()
+
+    # Для статистики и старых метрик используем очищенную версию.
+    deaths = clean_deaths(
+        deaths_raw.copy()
+    )
 
     # Отдельная копия для kill feed.
-    # Здесь сохраняются в том числе убийства ножом.
     deaths_for_kill_feed = deaths.copy()
 
     if "weapon" in deaths.columns:
@@ -368,7 +385,9 @@ def analyze_demo(demo_path, player):
     ]
 
     bomb_event_frames = {
-        event_name: safe_parse_event(parser, event_name)
+        event_name: safe_parse_event(
+            parser, event_name, player_props=["X", "Y", "Z"]
+        )
         for event_name in bomb_event_names
     }
 
@@ -509,6 +528,30 @@ def analyze_demo(demo_path, player):
 
     deaths_clean = pd.DataFrame(clean_deaths_list)
 
+    lifecycle_deaths_list = []
+
+    for _, death in lifecycle_deaths_raw.iterrows():
+        death_tick = death.get("tick")
+
+        if pd.isna(death_tick):
+            continue
+
+        for match_round, demo_round, start_tick, end_tick in round_intervals:
+            if start_tick <= death_tick < end_tick:
+                death_copy = death.copy()
+                death_copy["round"] = match_round
+
+                lifecycle_deaths_list.append(
+                    death_copy
+                )
+
+                break
+
+    lifecycle_deaths = pd.DataFrame(
+        lifecycle_deaths_list
+    )
+
+
     if deaths_clean.empty:
         raise ValueError(
             "После фильтрации по live-раундам не осталось смертей."
@@ -595,7 +638,6 @@ def analyze_demo(demo_path, player):
             ),
         })
 
-    print(f"KILL FEED EVENTS: {len(kill_feed)}")
 
     # =========================
     # 4.1 Positions
@@ -667,12 +709,76 @@ def analyze_demo(demo_path, player):
         )
     )
 
+    # =========================
+    # 4.1.0.1 Action episodes v2
+    # =========================
+
+    movement_episodes = []
+
+    for round_data in timeline_rounds:
+        round_number = int(
+            round_data["round"]
+        )
+
+        round_episodes = (
+            episodes.build_movement_episodes(
+                position_df=position_df,
+                player_name=player,
+                round_number=round_number,
+                round_start_tick=int(
+                    round_data[
+                        "live_start_tick"
+                    ]
+                ),
+                round_end_tick=int(
+                    round_data[
+                        "end_tick"
+                    ]
+                ),
+            )
+        )
+
+        movement_episodes.extend(
+            round_episodes
+        )
+
+
+    movement_episode_contexts = []
+
+    if map_name == "de_nuke":
+        movement_episode_contexts = (
+            episode_context
+            .build_episode_contexts(
+                geometry=
+                map_geometry.MapGeometry(
+                    "maps/de_nuke_nav.json"
+                ),
+
+                position_df=
+                position_df,
+
+                team_observations=
+                team_observations,
+
+                team_spot_windows=
+                team_spot_windows,
+
+                deaths_df=
+                lifecycle_deaths,
+
+                movement_episodes=
+                movement_episodes,
+            )
+        )
+
+
     # Geometry v1 сейчас реализована только для Nuke.
     # Для остальных карт analysis-core пока не запускаем,
     # чтобы случайно не анализировать их геометрией Nuke.
     geometry = None
     all_candidate_events = []
     candidate_contexts = []
+    potential_bad_entries = []
 
     if map_name == "de_nuke":
         geometry = map_geometry.MapGeometry(
@@ -695,6 +801,7 @@ def analyze_demo(demo_path, player):
                     team_observations=team_observations,
                     team_spot_windows=team_spot_windows,
                     player_name=player,
+                    deaths_df=lifecycle_deaths,
                     round_number=round_number,
                     round_start_tick=int(
                         round_data["live_start_tick"]
@@ -725,6 +832,14 @@ def analyze_demo(demo_path, player):
                 outcome_ticks=192,
             )
         )
+
+
+        potential_bad_entries = (
+            detectors.detect_potentially_bad_entries(
+                candidate_contexts
+            )
+        )
+
 
     # =========================
     # 4.1.1 Timeline score
@@ -811,12 +926,17 @@ def analyze_demo(demo_path, player):
         for timeline_round in timeline_rounds
     ]
 
+    # Required for actual C4 flight/landing/plant positions. Do not silently
+    # substitute player coordinates if entity extraction fails.
+    bomb_entity_stream = parse_bomb_entities(demo_path)
+
     radar_match = radar.build_radar_match(
         position_df,
         map_name,
         player_info,
         bomb_event_frames=bomb_event_frames,
         round_reset_ticks=round_reset_ticks,
+        bomb_entity_stream=bomb_entity_stream,
         grenade_df=grenade_df,
         grenade_event_frames=grenade_event_frames,
     )

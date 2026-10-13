@@ -192,6 +192,126 @@ class MapGeometry:
 
         return result
 
+    def shortest_path(
+            self,
+            start_area_id,
+            end_area_id,
+    ):
+        start_area_id = int(start_area_id)
+        end_area_id = int(end_area_id)
+
+        if start_area_id not in self.areas:
+            return None
+
+        if end_area_id not in self.areas:
+            return None
+
+        if start_area_id == end_area_id:
+            return [start_area_id]
+
+        distances = {
+            start_area_id: 0.0
+        }
+
+        previous = {}
+
+        queue = [
+            (0.0, start_area_id)
+        ]
+
+        while queue:
+            queue.sort(
+                key=lambda item: item[0]
+            )
+
+            current_distance, current_id = (
+                queue.pop(0)
+            )
+
+            if (
+                    current_distance
+                    > distances[current_id]
+            ):
+                continue
+
+            if current_id == end_area_id:
+                break
+
+            current_area = self.areas[
+                current_id
+            ]
+
+            for neighbor_id in current_area[
+                "connections"
+            ]:
+                neighbor = self.areas.get(
+                    neighbor_id
+                )
+
+                if neighbor is None:
+                    continue
+
+                step_distance = (
+                    self.area_distance(
+                        current_area,
+                        neighbor,
+                    )
+                )
+
+                new_distance = (
+                        current_distance
+                        + step_distance
+                )
+
+                old_distance = distances.get(
+                    neighbor_id
+                )
+
+                if (
+                        old_distance is None
+                        or new_distance
+                        < old_distance
+                ):
+                    distances[
+                        neighbor_id
+                    ] = new_distance
+
+                    previous[
+                        neighbor_id
+                    ] = current_id
+
+                    queue.append(
+                        (
+                            new_distance,
+                            neighbor_id,
+                        )
+                    )
+
+        if end_area_id not in distances:
+            return None
+
+        path = [
+            end_area_id
+        ]
+
+        current_id = end_area_id
+
+        while current_id != start_area_id:
+            current_id = previous.get(
+                current_id
+            )
+
+            if current_id is None:
+                return None
+
+            path.append(
+                current_id
+            )
+
+        path.reverse()
+
+        return path
+
     def nearest_area(
         self,
         x,
