@@ -68,3 +68,17 @@ backend/maps/*.nav
 # Local geometry debug scripts
 backend/debug_geometry.py
 backend/debug_geometry_plot.py
+
+# Local backup patches
+watchdemo-working-backup.patch
+backend/watchdemo-working-backup.patch
+
+# Compiled C4 extractor binaries
+tools/c4_extractor/bin/
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Local test artifacts
+.pytest_cache/
