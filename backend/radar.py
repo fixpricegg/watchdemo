@@ -31,6 +31,7 @@ BOMB_AUXILIARY_EVENTS = {
 }
 
 LOCKED_BOMB_STATES = {"planted", "defused", "exploded"}
+TERMINAL_BOMB_STATES = {"defused", "exploded"}
 
 
 def normalize_coordinates(x, y, map_name):
@@ -251,10 +252,7 @@ def _safe_float(value):
 
 
 def has_c4(inventory):
-    if not isinstance(inventory, list):
-        return False
-
-    return any("c4" in str(item).lower() for item in inventory)
+    return any("c4" in item.lower() for item in normalize_inventory(inventory))
 
 
 def create_bomb_state(
@@ -338,7 +336,10 @@ def normalize_bomb_events(bomb_event_frames=None, round_reset_ticks=None):
                 "player_name": _python_value(row.get("user_name")),
                 "player_steamid": _safe_int(row.get("user_steamid")),
                 "site": _python_value(row.get("site")),
-                "entity_id": _safe_int(row.get("entityid")),
+                "entity_id": _safe_int(row.get("entityid", row.get("entindex"))),
+                "x": _safe_float(row.get("user_X")),
+                "y": _safe_float(row.get("user_Y")),
+                "z": _safe_float(row.get("user_Z")),
                 "has_kit": _python_value(row.get("haskit")),
             })
 
@@ -417,18 +418,29 @@ def build_bomb_timeline(
     sampled_position_df,
     bomb_event_frames=None,
     round_reset_ticks=None,
+    bomb_entity_stream=None,
 ):
     """
     Build an event-driven bomb state machine sampled at RADAR_TICK_STEP.
 
     Truth sources:
     - events determine persistent transitions;
-    - inventory identifies the current carrier and its coordinates;
+    - inventory bootstraps ownership until a pickup/drop event is available;
+    - player positions locate the event-confirmed carrier;
     - game-state flags recover a missed event, but cannot undo planted/terminal states.
 
-    Exact world coordinates for dropped/planted C4 entities are not exposed by the
-    current high-level demoparser2 Python API, so those coordinates remain null.
+    Drop/plant coordinates prefer the event player's position at the exact
+    event tick, then a nearby radar sample. They are not C4 entity coordinates
+    and are marked as event_player_position.
+    A flag-only fallback has no trustworthy position and leaves coordinates null.
     """
+    if bomb_entity_stream is not None:
+        import bomb_entities
+        return bomb_entities.build_bomb_timeline(
+            sampled_position_df, bomb_entity_stream,
+            normalize_bomb_events(bomb_event_frames, round_reset_ticks),
+        )
+
     if sampled_position_df.empty:
         return [], normalize_bomb_events(bomb_event_frames, round_reset_ticks)
 
@@ -442,9 +454,11 @@ def build_bomb_timeline(
     else:
         sampled_position_df["_has_c4"] = False
 
-    sampled_position_df["_steamid_int"] = pd.to_numeric(
-        sampled_position_df["steamid"],
-        errors="coerce",
+    # Numeric coercion with nulls creates float64 and rounds 64-bit SteamIDs.
+    # Keep exact nullable integers for both ownership and position lookups.
+    sampled_position_df["_steamid_int"] = pd.array(
+        [_safe_int(value) for value in sampled_position_df["steamid"]],
+        dtype="UInt64",
     )
 
     if "is_bomb_planted" in sampled_position_df.columns:
@@ -474,11 +488,23 @@ def build_bomb_timeline(
         .tolist()
     )
 
-    carrier_by_tick = (
-        sampled_position_df[
-            sampled_position_df["_has_c4"]
+    inventory_carriers = sampled_position_df[
+        sampled_position_df["_has_c4"]
+        & sampled_position_df["_steamid_int"].notna()
+    ].copy()
+    if "is_alive" in inventory_carriers.columns:
+        inventory_carriers = inventory_carriers[
+            inventory_carriers["is_alive"].fillna(False).astype(bool)
         ]
-        .drop_duplicates("tick")
+    inventory_carriers = inventory_carriers.drop_duplicates(
+        ["tick", "_steamid_int"]
+    )
+    # Never resolve conflicting inventory snapshots by DataFrame row order.
+    inventory_carriers = inventory_carriers[
+        ~inventory_carriers["tick"].duplicated(keep=False)
+    ]
+    carrier_by_tick = (
+        inventory_carriers
         .set_index("tick")[
             [
                 "steamid",
@@ -548,10 +574,7 @@ def build_bomb_timeline(
         ]
     ].copy()
 
-    position_lookup_df["steamid"] = pd.to_numeric(
-        position_lookup_df["steamid"],
-        errors="coerce",
-    )
+    position_lookup_df["steamid"] = sampled_position_df["_steamid_int"]
 
     position_lookup_by_steamid = {
         int(steamid): group.sort_values("tick")
@@ -562,6 +585,11 @@ def build_bomb_timeline(
 
     events = normalize_bomb_events(bomb_event_frames, round_reset_ticks)
     event_index = 0
+    ownership_from_event = False
+    # A high flag carried over from the previous round is not a new event.
+    # After reset, each fallback is armed only once a low flag is observed.
+    planted_fallback_armed = True
+    dropped_fallback_armed = True
 
     current = {
         "state": "unavailable",
@@ -594,16 +622,19 @@ def build_bomb_timeline(
                 ),
             )
 
-            event_x = None
-            event_y = None
-            event_z = None
+            event_x = event.get("x")
+            event_y = event.get("y")
+            event_z = event.get("z")
 
-            if event_player_row is not None:
+            if (event_x is None or event_y is None) and event_player_row is not None:
                 event_x = _safe_float(event_player_row.get("X"))
                 event_y = _safe_float(event_player_row.get("Y"))
                 event_z = _safe_float(event_player_row.get("Z"))
 
             if event_name == "round_reset":
+                ownership_from_event = False
+                planted_fallback_armed = False
+                dropped_fallback_armed = False
                 current = {
                     "state": "unavailable",
                     "state_since_tick": event_tick,
@@ -618,12 +649,16 @@ def build_bomb_timeline(
                 }
 
 
+            elif current["state"] in TERMINAL_BOMB_STATES:
+                # A completed round's C4 cannot be resurrected by a late event.
+                pass
+
             elif (
                     event_name == "bomb_dropped"
                     and current["state"] not in LOCKED_BOMB_STATES
 
             ):
-
+                ownership_from_event = True
                 current.update({
 
                     "state": "dropped",
@@ -662,7 +697,7 @@ def build_bomb_timeline(
                     and current["state"] not in LOCKED_BOMB_STATES
 
             ):
-
+                ownership_from_event = True
                 current.update({
 
                     "state": "carried",
@@ -688,7 +723,10 @@ def build_bomb_timeline(
                 })
 
 
-            elif event_name == "bomb_planted":
+            elif (
+                event_name == "bomb_planted"
+                and current.get("source") != "bomb_planted"
+            ):
 
                 current.update({
 
@@ -747,10 +785,14 @@ def build_bomb_timeline(
         carrier_row = carrier_by_tick.get(tick)
         planted_flag = tick in planted_ticks
         dropped_flag = tick in dropped_ticks
+        if not planted_flag:
+            planted_fallback_armed = True
+        if not dropped_flag:
+            dropped_fallback_armed = True
 
         # Events own planted/terminal states until the next round reset.
         if current["state"] not in LOCKED_BOMB_STATES:
-            if planted_flag:
+            if planted_flag and planted_fallback_armed:
                 if current["state"] != "planted":
                     current["state_since_tick"] = tick
                     current["source"] = "is_bomb_planted_fallback"
@@ -759,24 +801,18 @@ def build_bomb_timeline(
                     "state": "planted",
                     "carrier_steamid": None,
                     "carrier_name": None,
-                })
-
-            elif carrier_row is not None:
-                carrier_steamid = _safe_int(carrier_row.get("steamid"))
-                carrier_name = _python_value(carrier_row.get("name"))
-
-                if current["state"] != "carried":
-                    current["state_since_tick"] = tick
-                    current["source"] = "inventory"
-
-                current.update({
-                    "state": "carried",
-                    "carrier_steamid": carrier_steamid,
-                    "carrier_name": carrier_name,
                     "site": None,
+                    "x": None,
+                    "y": None,
+                    "z": None,
+                    "position_accuracy": "unknown",
                 })
 
-            elif dropped_flag:
+            elif (
+                not ownership_from_event
+                and dropped_flag
+                and dropped_fallback_armed
+            ):
                 if current["state"] != "dropped":
                     current["state_since_tick"] = tick
                     current["source"] = "is_bomb_dropped_fallback"
@@ -785,6 +821,29 @@ def build_bomb_timeline(
                     "state": "dropped",
                     "carrier_steamid": None,
                     "carrier_name": None,
+                    "site": None,
+                    "x": None,
+                    "y": None,
+                    "z": None,
+                    "position_accuracy": "unknown",
+                })
+
+            elif not ownership_from_event and carrier_row is not None:
+                carrier_steamid = _safe_int(carrier_row.get("steamid"))
+                carrier_name = _python_value(carrier_row.get("name"))
+
+                if (
+                    current["state"] != "carried"
+                    or current.get("carrier_steamid") != carrier_steamid
+                ):
+                    current["state_since_tick"] = tick
+                    current["source"] = "inventory"
+
+                current.update({
+                    "state": "carried",
+                    "carrier_steamid": carrier_steamid,
+                    "carrier_name": carrier_name,
+                    "site": None,
                 })
 
         x = current.get("x")
@@ -796,29 +855,28 @@ def build_bomb_timeline(
         )
 
         if current["state"] == "carried":
-            # Re-check inventory first; if unavailable, use the event carrier row.
-            if (
-                    carrier_row is None
-                    and current.get("carrier_steamid") is not None
-            ):
-                carrier_row = player_row_by_key.get(
-                    (
-                        tick,
-                        int(current["carrier_steamid"]),
-                    )
-                )
+            # Resolve coordinates by the selected owner, never by another
+            # player's potentially stale inventory. Missing means unknown.
+            carrier_row = player_row_by_key.get(
+                (tick, current.get("carrier_steamid"))
+            )
+            x = y = z = None
+            position_accuracy = "unknown"
 
             if carrier_row is not None:
-                current["carrier_steamid"] = _safe_int(carrier_row.get("steamid"))
-                current["carrier_name"] = _python_value(carrier_row.get("name"))
+                current["carrier_name"] = _python_value(
+                    carrier_row.get("name")
+                )
                 x = _safe_float(carrier_row.get("X"))
                 y = _safe_float(carrier_row.get("Y"))
                 z = _safe_float(carrier_row.get("Z"))
-                position_accuracy = "carrier_position"
-                current["x"] = x
-                current["y"] = y
-                current["z"] = z
-                current["position_accuracy"] = "carrier_position"
+                if x is not None and y is not None:
+                    position_accuracy = "carrier_position"
+
+            current.update({
+                "x": x, "y": y, "z": z,
+                "position_accuracy": position_accuracy,
+            })
 
         states.append(
             create_bomb_state(
@@ -1257,6 +1315,7 @@ def build_radar_match(
     round_reset_ticks=None,
     grenade_df=None,
     grenade_event_frames=None,
+    bomb_entity_stream=None,
 ):
     radar_match = create_radar_match(map_name)
     radar_match["grenades"] = build_grenade_tracks(
@@ -1285,9 +1344,12 @@ def build_radar_match(
         sampled_position_df,
         bomb_event_frames=bomb_event_frames,
         round_reset_ticks=round_reset_ticks,
+        bomb_entity_stream=bomb_entity_stream,
     )
     radar_match["bomb"]["states"] = bomb_states
     radar_match["bomb"]["events"] = bomb_events
+    if bomb_entity_stream is not None:
+        radar_match["bomb"]["coordinate_source"] = "CC4/CPlantedC4"
 
     for row in sampled_position_df.itertuples(index=False):
         if (
@@ -1356,7 +1418,7 @@ def build_radar_match(
     ]
 
     state_df = (
-        sampled_position_df[state_columns]
+        sampled_position_df.reindex(columns=state_columns)
         .sort_values(["steamid", "tick"])
     )
 
