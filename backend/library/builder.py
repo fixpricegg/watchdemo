@@ -5,7 +5,7 @@ Construct once per match, query GameState(tick) many times. No DEM reparse per t
 import pandas as pd
 import information
 from .game_state import find_round, player_from_row
-from .economy import build_round_economy
+from .economy import build_round_economy, build_team_loadout
 
 
 
@@ -78,6 +78,10 @@ class MatchLibrary:
             'team_knowledge': {'visual_enemies': knowledge, 'other_sources': 'not_implemented'},
             'expected_state': {'status': 'not_implemented'},
             'economy': build_round_economy(snapshots),
+            "loadout": {
+                "T": build_team_loadout(snapshots, 2),
+                "CT": build_team_loadout(snapshots, 3),
+            },
         }
 
 
@@ -102,6 +106,7 @@ class MatchLibrary:
 
             "team_players": friends,
             "team_economy": state["economy"][team_side],
+            "team_loadout": state["loadout"][team_side],
 
             "known_enemies": state["team_knowledge"]["visual_enemies"],
             "other_information_sources": "not_implemented",

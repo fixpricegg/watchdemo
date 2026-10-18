@@ -138,6 +138,29 @@ class TestLibraryEconomy(unittest.TestCase):
             5000,
         )
 
+    def test_loadout_projection(self):
+        t_input = self.library.get_decision_input(
+            100, self.t_id
+        )
+
+        ct_input = self.library.get_decision_input(
+            100, self.ct_id
+        )
+
+        self.assertEqual(
+            t_input["team_loadout"]["team"], 2
+        )
+        self.assertEqual(
+            ct_input["team_loadout"]["team"], 3
+        )
+
+        self.assertNotIn("loadout", t_input)
+        self.assertNotIn("ground_truth", t_input)
+
+        self.assertNotIn(
+            self.ct_id, str(t_input)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
