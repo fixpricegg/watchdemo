@@ -1,0 +1,8 @@
+.final-cta { padding: clamp(150px, 16vw, 260px) var(--landing-gutter); background: #0a0e10; }
+.final-cta-inner { max-width: 1500px; margin: 0 auto; }
+.final-cta h2 { max-width: 1300px; margin-top: 30px; color: #f1f4f1; font-size: clamp(58px, 8vw, 118px); font-weight: 550; letter-spacing: -.07em; line-height: 1.02; }
+.final-cta h2 em { color: #b8d0c3; font-style: normal; }
+.final-cta p { max-width: 550px; margin-top: 35px; color: #a4b3af; font-size: clamp(17px, 1.5vw, 21px); line-height: 1.55; }
+.final-cta-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 42px; }
+@media (max-width: 760px) { .final-cta { padding: 145px 24px; } .final-cta h2 { font-size: clamp(52px, 9vw, 78px); } }
+@media (max-width: 480px) { .final-cta { padding: 120px 24px; } .final-cta h2 { font-size: clamp(44px, 10vw, 58px); } .final-cta p { font-size: 16px; } }

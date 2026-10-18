@@ -1,0 +1,52 @@
+.demo-section { padding: clamp(125px, 12vw, 190px) var(--landing-gutter) 145px; background: #090c0f; }
+.demo-section-inner { max-width: 1500px; margin: 0 auto; }
+.demo-section-intro { margin-bottom: clamp(62px, 8vw, 110px); }
+.demo-section-intro h2 { margin-top: 30px; color: #f2f5f3; font-size: clamp(52px, 6vw, 88px); font-weight: 560; letter-spacing: -.065em; line-height: 1.05; }
+.demo-section-intro h2 em { color: #b8d1c7; font-style: normal; }
+.demo-section-intro > p { max-width: 600px; margin-top: 28px; color: #aab7b5; font-size: clamp(16px, 1.3vw, 19px); line-height: 1.6; }
+.demo-media-frame { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid #374346; border-radius: 18px; background: #131b1e; }
+.demo-media-frame video, .demo-media-frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.demo-media-placeholder { padding: 40px; text-align: center; }
+.demo-media-placeholder span { color: #9bb4aa; font-size: 11px; font-weight: 600; letter-spacing: .15em; }
+.demo-media-placeholder p { margin-top: 24px; color: #d5dfda; font-size: clamp(25px, 3vw, 43px); font-weight: 490; letter-spacing: -.055em; line-height: 1.13; }
+.demo-controls { display: flex; align-items: flex-start; gap: clamp(25px, 4vw, 70px); padding: 33px 0 28px; }
+.demo-play { display: inline-flex; align-items: center; justify-content: center; gap: 13px; flex: none; min-width: 112px; height: 48px; padding: 0 17px; border: 1px solid #667974; border-radius: 100px; color: #f2f7f3; background: transparent; font-size: 13px; cursor: pointer; transition: background .2s, border-color .2s; }
+.demo-play:hover { background: #253431; border-color: #a9c0b7; }
+.demo-play span { width: 15px; font-size: 13px; }
+.demo-timeline { position: relative; flex: 1; min-width: 0; height: 76px; margin: 1px 26px 0; }
+.demo-timeline-line { position: absolute; top: 22px; left: 0; right: 0; height: 1px; background: #667b72; }
+.demo-timeline-marker { position: absolute; top: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; width: 56px; min-height: 56px; padding: 0; transform: translateX(-50%); border: 0; color: #8da19a; background: transparent; cursor: pointer; transition: color .2s; }
+.demo-timeline-marker:hover, .demo-timeline-marker.is-active { color: #e5efe8; }
+.demo-timeline-dot { z-index: 1; display: block; width: 12px; height: 12px; margin-top: 16px; border: 2px solid currentColor; border-radius: 50%; background: #0a0e10; transition: background .2s; }
+.demo-timeline-marker.is-active .demo-timeline-dot { background: #c1d9c9; }
+.demo-timeline-label { white-space: nowrap; font-size: 11px; }
+.demo-time { flex: none; margin-top: 17px; color: #93a6a0; font-size: 11px; font-weight: 600; letter-spacing: .08em; }
+.demo-context { display: flex; align-items: baseline; gap: 36px; min-height: 80px; padding: 28px 0 0; border-top: 1px solid #34413e; }
+.demo-context span { flex: none; color: #a9c9b6; font-size: 11px; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; }
+.demo-context p { max-width: 700px; color: #dbe5df; font-size: clamp(17px, 1.7vw, 23px); line-height: 1.45; }
+.mini-demo-after { display: flex; justify-content: space-between; align-items: center; gap: 25px; margin-top: 45px; color: #94a5a2; font-size: 14px; }
+.mini-demo-after a { color: #e4efe8; font-weight: 600; text-decoration: none; }
+.mini-demo-after a span { margin-left: 16px; }
+.mini-demo-after a:hover { text-decoration: underline; text-underline-offset: 5px; }
+
+@media (max-width: 760px) {
+  .demo-section { padding: 100px 24px 115px; }
+  .demo-section-intro h2 { font-size: clamp(43px, 7vw, 65px); }
+  .demo-media-frame { aspect-ratio: 4 / 3; }
+  .demo-controls { display: grid; grid-template-columns: 1fr auto; gap: 20px; }
+  .demo-timeline { grid-row: 2; grid-column: 1 / -1; width: calc(100% - 52px); margin: 0 26px; }
+  .demo-time { grid-row: 1; grid-column: 2; }
+  .demo-context { display: block; }
+  .demo-context p { margin-top: 15px; }
+}
+@media (max-width: 520px) {
+  .demo-section-intro h2 { font-size: clamp(39px, 10vw, 52px); }
+  .demo-media-frame { aspect-ratio: 1.16; border-radius: 16px; }
+  .demo-media-placeholder { padding: 20px; }
+  .demo-media-placeholder p { font-size: 27px; }
+  .demo-timeline-label { font-size: 9px; }
+  .mini-demo-after { align-items: flex-start; flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .demo-play, .demo-timeline-marker, .demo-timeline-dot { transition: none; }
+}

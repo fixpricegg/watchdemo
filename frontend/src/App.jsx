@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import {
     Route,
     Routes,
+    Navigate,
+    useLocation,
     useNavigate,
 } from "react-router-dom";
 
@@ -16,6 +18,7 @@ import MatchPage from "./pages/MatchPage";
 
 function App() {
     const navigate = useNavigate();
+    const { pathname } = useLocation();
 
     const [tickIndex, setTickIndex] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
@@ -197,7 +200,7 @@ function App() {
 
     return (
         <div>
-            <Header />
+            {pathname !== "/" && <Header />}
 
             <Routes>
 
@@ -289,7 +292,7 @@ function App() {
 
                 <Route
                     path="*"
-                    element={<HomePage />}
+                    element={<Navigate to="/" replace />}
                 />
 
             </Routes>
