@@ -1,0 +1,2 @@
+9bc9be331ca26963d96de461d094159abea02d0e131eebc3afab56e0d0526796  bin/c4-extractor-linux-amd64
+bc9fb75c8073796db650ab34ac4ec7631741ac5d10c714ee49c349d4610522a1  bin/c4-extractor-windows-amd64.exe
