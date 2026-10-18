@@ -10,6 +10,7 @@ import context
 import detectors
 import episodes
 import episode_context
+from library import MatchLibrary
 import pandas as pd
 
 
@@ -661,6 +662,34 @@ def analyze_demo(demo_path, player):
             "is_bomb_dropped",
             "is_bomb_planted",
             "approximate_spotted_by",
+
+            "pitch",
+
+            "velocity",
+            "velocity_X",
+            "velocity_Y",
+            "velocity_Z",
+
+            "is_walking",
+            "is_airborne",
+            "in_crouch",
+            "duck_amount",
+            "is_strafing",
+
+            "has_defuser",
+            "flash_duration",
+
+            "balance",
+            "start_balance",
+            "cash_spent_this_round",
+            "current_equip_value",
+            "round_start_equip_value",
+
+            "active_weapon_ammo",
+            "total_ammo_left",
+            "is_in_reload",
+            "is_scoped",
+            "shots_fired",
         ])
     except Exception as e:
         print("POSITION PARSE WITH TEAM ERROR:", e)
@@ -683,6 +712,34 @@ def analyze_demo(demo_path, player):
             "is_bomb_dropped",
             "is_bomb_planted",
             "approximate_spotted_by",
+
+            "pitch",
+
+            "velocity",
+            "velocity_X",
+            "velocity_Y",
+            "velocity_Z",
+
+            "is_walking",
+            "is_airborne",
+            "in_crouch",
+            "duck_amount",
+            "is_strafing",
+
+            "has_defuser",
+            "flash_duration",
+
+            "balance",
+            "start_balance",
+            "cash_spent_this_round",
+            "current_equip_value",
+            "round_start_equip_value",
+
+            "active_weapon_ammo",
+            "total_ammo_left",
+            "is_in_reload",
+            "is_scoped",
+            "shots_fired",
         ])
 
         position_df["team_num"] = None
@@ -708,6 +765,17 @@ def analyze_demo(demo_path, player):
             round_intervals,
         )
     )
+
+    match_library = MatchLibrary(
+        map_name=map_name,
+        position_df=position_df,
+        round_intervals=round_intervals,
+        deaths_df=lifecycle_deaths,
+        team_observations=team_observations,
+        team_spot_windows=team_spot_windows,
+        geometry=None,
+    )
+
 
     # =========================
     # 4.1.0.1 Action episodes v2
