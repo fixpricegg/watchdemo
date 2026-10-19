@@ -9,7 +9,10 @@ from .economy import build_round_economy, build_team_loadout
 from .economy import build_round_start_economy
 from .economy_history import build_economy_history
 from .round_results import build_round_results
-
+from .loss_bonus import (
+    build_loss_counter_timeline,
+    get_loss_counters_at_tick,
+)
 
 
 
@@ -17,7 +20,8 @@ class MatchLibrary:
     def __init__(self, *, map_name, position_df, round_intervals,
                  deaths_df=None, geometry=None, team_observations=None,
                  team_spot_windows=None, max_state_age_ticks=16,
-                 round_ends=None):
+                 round_ends=None,
+                 loss_counter_df=None):
         if not {'tick', 'steamid', 'team_num'}.issubset(position_df.columns):
             raise ValueError('position_df requires tick, steamid, team_num')
         self.map_name = str(map_name)
@@ -25,6 +29,11 @@ class MatchLibrary:
         self.round_results = build_round_results(
             self.round_intervals,
             round_ends,
+        )
+        self.loss_counter_timeline = (
+            build_loss_counter_timeline(loss_counter_df)
+            if loss_counter_df is not None
+            else []
         )
         self.geometry = geometry
         self.max_state_age_ticks = int(max_state_age_ticks)
@@ -234,6 +243,33 @@ class MatchLibrary:
                 history.append(dict(result))
 
         return history
+
+
+    def get_loss_bonus_state(self, tick):
+        """
+        Return loss counters known at the requested tick.
+
+        Counters are engine values, not monetary rewards.
+        """
+        state = get_loss_counters_at_tick(
+            self.loss_counter_timeline,
+            tick,
+        )
+
+        return {
+            "tick": state["tick"],
+            "status": state["status"],
+            "source_tick": state["source_tick"],
+            "engine_counters": {
+                "CT": state["CT"],
+                "T": state["T"],
+            },
+            "monetary_bonus": {
+                "CT": None,
+                "T": None,
+            },
+        }
+
 
 
 

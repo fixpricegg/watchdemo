@@ -3,6 +3,7 @@ from missed_trade import get_possible_missed_trades
 from report import generate_report
 import radar
 from bomb_entities import parse_bomb_entities
+from library.loss_bonus import CT_LOSS_FIELD, T_LOSS_FIELD
 import information
 import map_geometry
 import candidates
@@ -766,6 +767,29 @@ def analyze_demo(demo_path, player):
         )
     )
 
+    # Extract team loss counters at round boundaries.
+    loss_ticks = set()
+
+    for _, _, start_tick, end_tick in round_intervals:
+        start_tick = int(start_tick)
+        end_tick = int(end_tick)
+
+        loss_ticks.add(start_tick)
+        loss_ticks.add(max(0, end_tick - 1))
+
+    if not round_ends.empty and "tick" in round_ends.columns:
+        for tick in round_ends["tick"].dropna():
+            tick = int(tick)
+
+            loss_ticks.add(max(0, tick - 1))
+            loss_ticks.add(tick)
+            loss_ticks.add(tick + 1)
+
+    loss_counter_df = parser.parse_ticks(
+        [CT_LOSS_FIELD, T_LOSS_FIELD],
+        ticks=sorted(loss_ticks),
+    )
+
     match_library = MatchLibrary(
         map_name=map_name,
         position_df=position_df,
@@ -774,6 +798,7 @@ def analyze_demo(demo_path, player):
         deaths_df=lifecycle_deaths,
         team_observations=team_observations,
         team_spot_windows=team_spot_windows,
+        loss_counter_df=loss_counter_df,
         geometry=None,
     )
 

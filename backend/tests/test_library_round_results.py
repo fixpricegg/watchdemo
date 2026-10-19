@@ -64,5 +64,66 @@ class TestLibraryRoundResults(unittest.TestCase):
         self.assertIsNone(results[-1]["winner_side"])
 
 
+    def test_loss_counters_in_match_library(self):
+        from library.loss_bonus import (
+            CT_LOSS_FIELD,
+            T_LOSS_FIELD,
+        )
+
+        positions = pd.DataFrame([
+            {
+                "tick": 100,
+                "steamid": 111,
+                "name": "player",
+                "team_num": 2,
+            },
+        ])
+
+        counters = pd.DataFrame([
+            {
+                "tick": 100,
+                CT_LOSS_FIELD: 0,
+                T_LOSS_FIELD: 2,
+            },
+            {
+                "tick": 150,
+                CT_LOSS_FIELD: 0,
+                T_LOSS_FIELD: 3,
+            },
+        ])
+
+        library = MatchLibrary(
+            map_name="de_nuke",
+            position_df=positions,
+            round_intervals=[(1, 1, 100, 200)],
+            loss_counter_df=counters,
+            team_observations={},
+            team_spot_windows={},
+        )
+
+        before = library.get_loss_bonus_state(149)
+        after = library.get_loss_bonus_state(150)
+
+        self.assertEqual(
+            before["engine_counters"]["T"], 2
+        )
+        self.assertEqual(
+            after["engine_counters"]["T"], 3
+        )
+
+        self.assertEqual(before["source_tick"], 100)
+        self.assertEqual(after["source_tick"], 150)
+
+        self.assertIsNone(
+            after["monetary_bonus"]["T"]
+        )
+
+        self.assertEqual(
+            library.get_loss_bonus_state(99)["status"],
+            "unavailable",
+        )
+
+
+
 if __name__ == "__main__":
     unittest.main()
