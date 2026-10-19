@@ -6,17 +6,26 @@ import pandas as pd
 import information
 from .game_state import find_round, player_from_row
 from .economy import build_round_economy, build_team_loadout
+from .economy import build_round_start_economy
+from .economy_history import build_economy_history
+from .round_results import build_round_results
+
 
 
 
 class MatchLibrary:
     def __init__(self, *, map_name, position_df, round_intervals,
                  deaths_df=None, geometry=None, team_observations=None,
-                 team_spot_windows=None, max_state_age_ticks=16):
+                 team_spot_windows=None, max_state_age_ticks=16,
+                 round_ends=None):
         if not {'tick', 'steamid', 'team_num'}.issubset(position_df.columns):
             raise ValueError('position_df requires tick, steamid, team_num')
         self.map_name = str(map_name)
         self.round_intervals = list(round_intervals)
+        self.round_results = build_round_results(
+            self.round_intervals,
+            round_ends,
+        )
         self.geometry = geometry
         self.max_state_age_ticks = int(max_state_age_ticks)
         self.position_df = position_df.copy()
@@ -83,6 +92,152 @@ class MatchLibrary:
                 "CT": build_team_loadout(snapshots, 3),
             },
         }
+
+
+    def get_round_start_economy(self, tick, player):
+        """Return round-start economy as ground truth."""
+        state = self.get_game_state(tick, player)
+        round_info = state["round"]
+
+        if round_info is None:
+            return None
+
+        start_tick = round_info["live_start_tick"]
+
+        try:
+            start_state = self.get_game_state(
+                start_tick, player
+            )
+        except ValueError:
+            return {
+                "round": round_info["number"],
+                "live_start_tick": start_tick,
+                "status": "unavailable",
+                "teams": None
+            }
+
+        players = start_state["ground_truth"]["players"]
+
+        return {
+            "round": round_info["number"],
+            "live_start_tick": start_tick,
+            "teams": build_round_start_economy(players),
+            "status": "available",
+        }
+
+
+
+
+    def get_round_start_loadout(self, tick, player):
+        """Ground-truth loadouts at the first live tick."""
+        state = self.get_game_state(tick, player)
+        round_info = state["round"]
+
+        if round_info is None:
+            return None
+
+        start_tick = round_info["live_start_tick"]
+
+        try:
+            start_state = self.get_game_state(
+                start_tick, player
+            )
+        except ValueError:
+            return {
+                "round": round_info["number"],
+                "live_start_tick": start_tick,
+                "status": "unavailable",
+                "teams": None,
+            }
+
+        players = start_state["ground_truth"]["players"]
+
+        return {
+            "round": round_info["number"],
+            "live_start_tick": start_tick,
+            "status": "available",
+            "teams": {
+                "T": build_team_loadout(players, 2),
+                "CT": build_team_loadout(players, 3),
+            },
+        }
+
+
+    def get_economy_history(self, tick, player, limit=5):
+        """
+        Return ground-truth economy history
+        for previous completed rounds only.
+        """
+
+        if not isinstance(limit, int) or limit < 1:
+            raise ValueError("limit must be positive")
+
+        state = self.get_game_state(tick, player)
+        current = state["round"]
+
+        if current is None:
+            return None
+
+        current_start = current["live_start_tick"]
+        previous_rounds = []
+
+        for match_round, demo_round, start, end in self.round_intervals:
+            if int(end) < current_start:
+                previous_rounds.append(
+                    (int(match_round), int(start))
+                )
+
+        previous_rounds.sort(key=lambda item: item[1])
+        snapshots = []
+
+        for round_number, start_tick in previous_rounds[-limit:]:
+            try:
+                snapshot = self.get_round_start_economy(
+                    start_tick, player
+                )
+            except ValueError:
+                snapshot = None
+
+            if snapshot is None:
+                snapshot = {
+                    "round": round_number,
+                    "live_start_tick": start_tick,
+                    "status": "unavailable",
+                    "teams": None,
+                }
+
+            snapshots.append(snapshot)
+
+        return build_economy_history(
+            round_snapshots=snapshots,
+            current_round=current["number"],
+            limit=limit,
+        )
+
+
+    def get_round_results(self):
+        """Complete ground-truth round results."""
+        return [dict(result) for result in self.round_results]
+
+    def get_round_results_at_tick(self, tick):
+        """Round results already established by the requested tick."""
+        tick = int(tick)
+        history = []
+
+        for result in self.round_results:
+            result_tick = result["result_tick"]
+
+            if result_tick is not None:
+                if result_tick <= tick:
+                    history.append(dict(result))
+            elif result["end_tick"] <= tick:
+                history.append(dict(result))
+
+        return history
+
+
+
+
 
 
     def get_decision_input(self, tick, player):

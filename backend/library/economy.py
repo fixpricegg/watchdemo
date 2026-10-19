@@ -238,3 +238,78 @@ def build_team_loadout(players, team_number):
         },
     }
 
+
+
+def build_round_start_economy(players):
+    """
+    Aggregate team equipment values at the first live tick.
+
+    round_start_equip_value:
+        Equipment carried into the round.
+
+    current_equip_value:
+        Equipment held at the sampled live tick.
+
+    cash_spent_this_round:
+        Money spent during the round, according to the parser.
+    """
+
+    result = {}
+
+    for team_number, side in ((2, "T"), (3, "CT")):
+        team_players = [
+            p for p in players
+            if p.get("team") == team_number
+        ]
+
+        def aggregate(field):
+            values = [
+                p.get("economy", {}).get(field)
+                for p in team_players
+            ]
+
+            known = [v for v in values if v is not None]
+
+            complete = (
+                len(team_players) == 5
+                and len(known) == 5
+            )
+
+            return {
+                "total": sum(known) if complete else None,
+                "observed": sum(known),
+                "known_players": len(known),
+                "complete": complete,
+            }
+
+        initial = aggregate("round_start_equip_value")
+        live = aggregate("current_equip_value")
+        spent = aggregate("cash_spent_this_round")
+
+        result[side] = {
+            "team": team_number,
+            "players_observed": len(team_players),
+
+            # Equipment carried into the round
+            "initial_equipment_value": initial["total"],
+
+            # Equipment at the first live tick
+            "post_buy_equipment_value": live["total"],
+
+            # Money actually spent, not equipment gained
+            "cash_spent": spent["total"],
+
+            "data_quality": {
+                "initial_complete": initial["complete"],
+                "post_buy_complete": live["complete"],
+                "spent_complete": spent["complete"],
+            },
+
+            # Backward compatibility with existing tests
+            "players_with_value": initial["known_players"],
+            "total_start_equipment_value": initial["total"],
+            "observed_equipment_value": initial["observed"],
+            "complete": initial["complete"],
+        }
+
+    return result

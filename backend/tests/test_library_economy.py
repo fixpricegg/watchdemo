@@ -161,6 +161,200 @@ class TestLibraryEconomy(unittest.TestCase):
             self.ct_id, str(t_input)
         )
 
+    def test_round_start_snapshot(self):
+        result = self.library.get_round_start_economy(
+            100, self.t_id
+        )
+
+        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual(result["live_start_tick"], 90)
+        self.assertIsNone(result["teams"])
+
+    def test_available_round_start_snapshot(self):
+        import pandas as pd
+
+        positions = pd.DataFrame([
+            {
+                "tick": 90,
+                "steamid": self.t_id,
+                "name": "T_Player",
+                "team_num": 2,
+                "X": 100,
+                "Y": 200,
+                "Z": 0,
+                "round_start_equip_value": 4000,
+            },
+            {
+                "tick": 90,
+                "steamid": self.ct_id,
+                "name": "CT_Player",
+                "team_num": 3,
+                "X": 900,
+                "Y": 800,
+                "Z": 0,
+                "round_start_equip_value": 5000,
+            },
+        ])
+
+        library = MatchLibrary(
+            map_name="de_nuke",
+            position_df=positions,
+            round_intervals=[(1, 1, 90, 200)],
+            team_observations={},
+            team_spot_windows={},
+        )
+
+        result = library.get_round_start_economy(
+            90, self.t_id
+        )
+
+        self.assertEqual(result["status"], "available")
+        self.assertEqual(
+            result["teams"]["T"]["observed_equipment_value"],
+            4000,
+        )
+        self.assertEqual(
+            result["teams"]["CT"]["observed_equipment_value"],
+            5000,
+        )
+
+        # Two observed players do not constitute full teams.
+        self.assertFalse(result["teams"]["T"]["complete"])
+        self.assertFalse(result["teams"]["CT"]["complete"])
+
+
+    def test_round_start_loadout(self):
+        import pandas as pd
+
+        positions = pd.DataFrame([
+            {
+                "tick": 90,
+                "steamid": self.t_id,
+                "name": "T_Player",
+                "team_num": 2,
+                "X": 100,
+                "Y": 200,
+                "Z": 0,
+                "inventory": [
+                    "AK-47",
+                    "Glock-18",
+                    "Smoke Grenade",
+                    "Flashbang",
+                ],
+            },
+            {
+                "tick": 90,
+                "steamid": self.ct_id,
+                "name": "CT_Player",
+                "team_num": 3,
+                "X": 900,
+                "Y": 800,
+                "Z": 0,
+                "inventory": [
+                    "AWP",
+                    "USP-S",
+                    "Flashbang",
+                ],
+            },
+        ])
+
+        library = MatchLibrary(
+            map_name="de_nuke",
+            position_df=positions,
+            round_intervals=[(1, 1, 90, 200)],
+            team_observations={},
+            team_spot_windows={},
+        )
+
+        result = library.get_round_start_loadout(
+            90, self.t_id
+        )
+
+        self.assertEqual(result["status"], "available")
+
+        self.assertEqual(
+            result["teams"]["T"]["primary_weapons"],
+            ["AK-47"],
+        )
+
+        self.assertEqual(
+            result["teams"]["CT"]["primary_weapons"],
+            ["AWP"],
+        )
+
+        self.assertEqual(
+            result["teams"]["T"]["grenades"]["smoke"],
+            1,
+        )
+
+
+    def test_economy_history_first_round(self):
+        result = self.library.get_economy_history(
+            100, self.t_id
+        )
+
+        self.assertEqual(result["current_round"], 1)
+        self.assertEqual(result["rounds_available"], 0)
+        self.assertEqual(result["history"], [])
+
+    def test_economy_history_no_future(self):
+        import pandas as pd
+
+        positions = pd.DataFrame([
+            {
+                "tick": tick,
+                "steamid": steamid,
+                "name": name,
+                "team_num": team,
+                "X": 100,
+                "Y": 200,
+                "Z": 0,
+                "round_start_equip_value": value,
+            }
+            for tick, value in (
+                (90, 200),
+                (210, 4000),
+                (410, 5000),
+            )
+            for steamid, name, team in (
+                (self.t_id, "T_Player", 2),
+                (self.ct_id, "CT_Player", 3),
+            )
+        ])
+
+        library = MatchLibrary(
+            map_name="de_nuke",
+            position_df=positions,
+            round_intervals=[
+                (1, 1, 90, 200),
+                (2, 2, 210, 350),
+                (3, 3, 410, 550),
+            ],
+            team_observations={},
+            team_spot_windows={},
+        )
+
+        result = library.get_economy_history(
+            210, self.t_id
+        )
+
+        self.assertEqual(result["current_round"], 2)
+
+        rounds = [
+            entry["round"]
+            for entry in result["history"]
+        ]
+
+        self.assertEqual(rounds, [1])
+
+        self.assertEqual(
+            result["history"][0]["teams"]["T"][
+                "observed_equipment_value"
+            ],
+            200,
+        )
+
+
 
 if __name__ == "__main__":
     unittest.main()

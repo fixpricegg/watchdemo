@@ -770,6 +770,7 @@ def analyze_demo(demo_path, player):
         map_name=map_name,
         position_df=position_df,
         round_intervals=round_intervals,
+        round_ends=round_ends,
         deaths_df=lifecycle_deaths,
         team_observations=team_observations,
         team_spot_windows=team_spot_windows,
