@@ -12,6 +12,8 @@ from .round_results import build_round_results
 from .loss_bonus import (
     build_loss_counter_timeline,
     get_loss_counters_at_tick,
+    get_next_loss_reward,
+    get_loss_reward_for_round,
 )
 
 
@@ -199,11 +201,17 @@ class MatchLibrary:
         previous_rounds.sort(key=lambda item: item[1])
         snapshots = []
 
+        results_by_round = {
+            result["round"]: result
+            for result in self.get_round_results_at_tick(tick)
+        }
+
         for round_number, start_tick in previous_rounds[-limit:]:
             try:
                 snapshot = self.get_round_start_economy(
                     start_tick, player
                 )
+
             except ValueError:
                 snapshot = None
 
@@ -214,6 +222,27 @@ class MatchLibrary:
                     "status": "unavailable",
                     "teams": None,
                 }
+
+
+            round_result = results_by_round.get(
+                round_number
+            )
+
+            snapshot["round_result"] = (
+                dict(round_result)
+                if round_result is not None
+                else None
+            )
+
+            snapshot["loss_bonus"] = (
+                get_loss_reward_for_round(
+                    self.loss_counter_timeline,
+                    round_result,
+                )
+                if round_result is not None
+                else None
+            )
+
 
             snapshots.append(snapshot)
 
@@ -256,6 +285,11 @@ class MatchLibrary:
             tick,
         )
 
+        next_reward = get_next_loss_reward(
+            self.loss_counter_timeline,
+            tick,
+        )
+
         return {
             "tick": state["tick"],
             "status": state["status"],
@@ -268,7 +302,29 @@ class MatchLibrary:
                 "CT": None,
                 "T": None,
             },
+            "next_loss_reward": next_reward[
+                "base_reward_if_lost_now"
+            ],
+            "next_loss_reward_status": next_reward["status"],
         }
+
+
+
+    def get_round_loss_rewards_at_tick(self, tick):
+        """
+        Ground-truth base loss rewards for rounds
+        completed by the requested tick.
+        """
+        results = self.get_round_results_at_tick(tick)
+
+        return [
+            get_loss_reward_for_round(
+                self.loss_counter_timeline,
+                result,
+            )
+            for result in results
+        ]
+
 
 
 

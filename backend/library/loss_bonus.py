@@ -83,3 +83,129 @@ def get_loss_counters_at_tick(timeline, tick):
         "CT": state["CT"],
         "T": state["T"],
     }
+
+
+def counter_to_loss_reward(counter):
+    """
+    Standard competitive CS2 base loss reward.
+
+    This is not the player's total cash payout.
+    """
+    if counter is None or isinstance(counter, bool):
+        return None
+
+    try:
+        value = float(counter)
+    except (TypeError, ValueError):
+        return None
+
+    if not value.is_integer() or value < 0:
+        return None
+
+    return 1400 + 500 * min(int(value), 4)
+
+
+def get_next_loss_reward(timeline, tick):
+    """
+    Base reward if a team lost with the counters
+    observed at exactly this tick.
+
+    Sparse, outdated snapshots are not treated
+    as confirmed current values.
+    """
+    tick = int(tick)
+
+    state = get_loss_counters_at_tick(timeline, tick)
+
+    exact = (
+        state["status"] == "available"
+        and state["source_tick"] == tick
+    )
+
+    return {
+        "tick": tick,
+        "status": "available" if exact else "unavailable",
+        "source_tick": state["source_tick"],
+        "base_reward_if_lost_now": {
+            "CT": (
+                counter_to_loss_reward(state["CT"])
+                if exact else None
+            ),
+            "T": (
+                counter_to_loss_reward(state["T"])
+                if exact else None
+            ),
+        },
+    }
+
+
+def get_loss_reward_for_round(timeline, round_result):
+    """
+    Calculate the losing team's BASE reward.
+
+    IMPORTANT:
+    Use counter at result_tick - 1, because
+    CS2 updates the counters at round_end.
+
+    The returned amount is rule-derived, not
+    a directly observed cash transaction.
+    """
+    result = {
+        "round": round_result.get("round"),
+        "result_tick": round_result.get("result_tick"),
+        "winner_side": round_result.get("winner_side"),
+        "loser_side": round_result.get("loser_side"),
+        "status": "unavailable",
+        "counter_before_result": None,
+        "counter_after_result": None,
+        "base_loss_reward": None,
+        "source": "standard_competitive_rules",
+    }
+
+    winner = result["winner_side"]
+    loser = result["loser_side"]
+    end_tick = result["result_tick"]
+
+    if (
+        winner not in ("T", "CT")
+        or loser not in ("T", "CT")
+        or winner == loser
+        or end_tick is None
+    ):
+        result["status"] = "unknown"
+        return result
+
+    end_tick = int(end_tick)
+
+    before = get_loss_counters_at_tick(
+        timeline, end_tick - 1
+    )
+
+    after = get_loss_counters_at_tick(
+        timeline, end_tick
+    )
+
+    # Exact pre-result sample is required.
+    if (
+        before["status"] != "available"
+        or before["source_tick"] != end_tick - 1
+    ):
+        return result
+
+    counter = before[loser]
+
+    result["counter_before_result"] = counter
+    result["base_loss_reward"] = (
+        counter_to_loss_reward(counter)
+    )
+
+    if (
+        after["status"] == "available"
+        and after["source_tick"] == end_tick
+    ):
+        result["counter_after_result"] = after[loser]
+
+    if result["base_loss_reward"] is not None:
+        result["status"] = "available"
+
+    return result

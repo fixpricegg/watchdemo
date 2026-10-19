@@ -47,6 +47,12 @@ def build_economy_history(
                 "status", "unavailable"
             ),
             "teams": deepcopy(snapshot.get("teams")),
+            "round_result": deepcopy(
+                snapshot.get("round_result")
+            ),
+            "loss_bonus": deepcopy(
+                snapshot.get("loss_bonus")
+            ),
         })
 
     history.sort(key=lambda item: item["round"])
