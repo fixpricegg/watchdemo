@@ -2,7 +2,7 @@
 
 WatchDemo is a web application for analyzing Counter-Strike 2 demo files. It turns a `.dem` file into an interactive browser report with match statistics, player movement, timeline events, and evidence-linked coaching feedback.
 
-> **Status:** active development, early MVP. The parser, first analysis rules, report generation, interactive radar, Timeline, score tracking, and event navigation are working. The product is not ready for public release yet.
+> **Status:** active development, Radar v1. The technical replay core works, but the complete upload-to-report product flow is not ready yet.
 
 ## Product goal
 
@@ -13,62 +13,52 @@ Parse the match
         ↓
 Open a browser report
         ↓
-Inspect statistics, mistakes, and the exact replay moment
+See the most important problems
+        ↓
+Jump to the exact Radar/Timeline evidence
 ```
 
-WatchDemo is intended for competitive players who want to improve but do not want to manually review every round or pay for a personal coach.
+The first working version is a closed **alpha v0.1** for Inferno. A tester must be able to upload a demo, select the analyzed player, receive a report, and inspect 1–3 evidence-linked findings without developer assistance.
 
 ## Current functionality
 
-### Demo parsing
+### Demo parsing and analysis
 
 - Round and match-start detection
 - Kill and death extraction
-- Invalid world-death filtering
 - Pause-aware timing
-- Player positions by tick
-- Dynamic CT/T side detection
-- Round-end winner detection
-- Match score tracking across side switches and overtime
-
-### Player analysis
-
-- Kills, deaths, and K/D
-- Headshot percentage
-- Entry kills and entry deaths
-- Entry success rate
-- Average opening-kill and first-death timing
-- Multi-kill rounds
-- Trade kills
+- Player positions and dynamic CT/T sides by tick
+- Match score across side switches and overtime
+- K/D, headshot percentage, entries, multi-kills and trade kills
 - Possible missed-trade events
 - Rule-based Top Problems
 
-### Interactive report
+### Interactive replay
 
-- React radar playback
-- Alive/dead player states
-- CT/T colors that update after side switches
-- Timeline with round segments
-- Buy and Live phases
-- Round timer
-- Current score
-- Event markers
-- Click-to-jump from an event to the closest replay tick
+- React Radar and Timeline
+- Alive/dead states and persistent player names
+- Player view direction
+- Round phases, timer and score
+- Event markers with jump-to-tick navigation
+- Bomb lifecycle v1: carrier, dropped, planted, defused and exploded
+- Grenade trajectories
+- Smoke, molotov and decoy effect lifecycles
 
 ## Current focus
 
-The current development phase is **Radar v1** on Inferno.
+The current development phase is **functional Radar v1 closure**:
 
-Next priorities:
+1. Split component styles before HUD and Kill Feed are added
+2. Add HP, armor, weapon, ammo, utility and kit to tick state
+3. Build an informative player hover
+4. Build CT/T player HUD
+5. Build a synchronized Kill Feed
+6. Convert raw bomb-site values to A/B
+7. Confirm the full Inferno replay flow
 
-1. Bomb carrier, dropped bomb, planted bomb, defuse, and explosion states
-2. Grenade events and trajectories
-3. Better round navigation and player focus
-4. Complete raw user flow from upload to report
-5. Multi-map support
-6. Analysis-quality testing with real demos
+After Radar v1, the project freezes its JSON contracts, splits the Python monoliths, and builds the real `upload → processing → report` path.
 
-See [ROADMAP.md](ROADMAP.md) for the full plan and [WORKFLOW.md](WORKFLOW.md) for the development process.
+See [ROADMAP.md](ROADMAP.md) for the complete alpha plan and [WORKFLOW.md](WORKFLOW.md) for the development process.
 
 ## Architecture
 
@@ -77,63 +67,44 @@ CS2 demo (.dem)
         ↓
 Python + demoparser2
         ↓
-Deterministic match analysis
+Deterministic replay and analysis
         ↓
 radar.json + report.json
         ↓
-React report, Radar, and Timeline
+React report, Radar and Timeline
 ```
 
-The deterministic backend is the source of truth. A future AI layer will explain verified signals, compare matches, and personalize recommendations rather than invent match events.
+The deterministic backend remains the source of truth. A future AI layer will explain verified findings and detect multi-match patterns rather than invent match events.
 
 ## Tech stack
 
 | Area | Technology |
 | --- | --- |
 | Demo parsing | Python, demoparser2, pandas |
-| Backend | FastAPI, Uvicorn |
+| Planned API | FastAPI, Uvicorn |
 | Frontend | React, Vite |
-| Data exchange | JSON |
-
-## Planned repository structure
-
-```text
-watchdemo/
-├── backend/
-│   ├── app/
-│   ├── analyzer/
-│   ├── tests/
-│   └── requirements.txt
-├── frontend/
-│   ├── src/
-│   └── package.json
-├── README.md
-├── ROADMAP.md
-├── WORKFLOW.md
-└── .gitignore
-```
-
-The current local source will be added after the working version is reviewed and sensitive or generated files are excluded.
+| Data exchange | Versioned JSON contracts |
 
 ## Current limitations
 
-- Inferno is the only configured radar map
-- Radar JSON is large and not yet optimized
-- Some analysis rules are still coarse heuristics
-- Missed-trade detection does not yet understand walls, vision, flashes, reloads, or team intent
-- No complete upload-to-report flow is deployed
-- No user accounts or FACEIT integration
-- No automated regression suite yet
+- Inferno is the only configured map
+- Demo path and analyzed player are still configured manually
+- Generated JSON is still copied into the frontend manually
+- Radar JSON is large and not optimized
+- Dropped/planted C4 coordinates are approximate in some states
+- Analysis rules are early heuristics
+- No complete API, accounts or FACEIT integration
+- No automated regression suite
 
-## Testing strategy
+## Alpha target
 
-Before public release, the first complete version will be tested with 5–10 external players. The important signals are:
+The alpha is ready when:
 
-- successful demo-processing rate;
-- correctness of replay state;
-- false-positive rate for detected mistakes;
-- whether users open evidence moments;
-- whether users return to analyze another match.
+- an unfamiliar tester completes the full flow without a terminal;
+- round count and final score are correct on supported demos;
+- every Top Problem links to valid replay evidence;
+- at least 5–10 external players can test the product;
+- feedback distinguishes useful, wrong and unclear findings.
 
 ## Product rule
 
