@@ -4,6 +4,9 @@ from report import generate_report
 import radar
 from bomb_entities import parse_bomb_entities
 from library.loss_bonus import CT_LOSS_FIELD, T_LOSS_FIELD
+from library.player_economy_history import (
+    build_prebuy_snapshots,
+)
 import information
 import map_geometry
 import candidates
@@ -790,6 +793,11 @@ def analyze_demo(demo_path, player):
         ticks=sorted(loss_ticks),
     )
 
+    prebuy_snapshots = build_prebuy_snapshots(
+        parser,
+        round_intervals,
+    )
+
     match_library = MatchLibrary(
         map_name=map_name,
         position_df=position_df,
@@ -799,6 +807,7 @@ def analyze_demo(demo_path, player):
         team_observations=team_observations,
         team_spot_windows=team_spot_windows,
         loss_counter_df=loss_counter_df,
+        prebuy_snapshots=prebuy_snapshots,
         geometry=None,
     )
 

@@ -9,6 +9,7 @@ from .economy import build_round_economy, build_team_loadout
 from .economy import build_round_start_economy
 from .economy_history import build_economy_history
 from .round_results import build_round_results
+from .player_economy_history import build_player_economy_history
 from .loss_bonus import (
     build_loss_counter_timeline,
     get_loss_counters_at_tick,
@@ -23,7 +24,7 @@ class MatchLibrary:
                  deaths_df=None, geometry=None, team_observations=None,
                  team_spot_windows=None, max_state_age_ticks=16,
                  round_ends=None,
-                 loss_counter_df=None):
+                 loss_counter_df=None, prebuy_snapshots=None,):
         if not {'tick', 'steamid', 'team_num'}.issubset(position_df.columns):
             raise ValueError('position_df requires tick, steamid, team_num')
         self.map_name = str(map_name)
@@ -57,6 +58,11 @@ class MatchLibrary:
             spots = information.build_spot_events(self.position_df, self.round_intervals)
             team_spot_windows = information.build_team_spot_windows(spots)
         self.team_spot_windows = team_spot_windows
+        self.prebuy_snapshots = (
+            prebuy_snapshots
+            if prebuy_snapshots is not None
+            else {}
+        )
 
     def get_game_state(self, tick, player):
         """Return ground truth separate from team knowledge.
@@ -251,6 +257,95 @@ class MatchLibrary:
             current_round=current["number"],
             limit=limit,
         )
+
+
+    def get_player_economy_history(
+        self, player, current_tick=None
+    ):
+        player_id = information.normalize_steamid(player)
+
+        stream = self.player_streams.get(player_id)
+
+        if stream is None:
+            raise ValueError(
+                f"No player stream found: {player}"
+            )
+
+
+        from .player_economy_history import get_round_survival
+
+        history = build_player_economy_history(
+            player_stream=stream,
+            round_intervals=self.round_intervals,
+            geometry=self.geometry,
+            current_tick=current_tick,
+        )
+
+        deaths = self.deaths_df
+
+        death_data_complete = (
+            deaths is not None
+            and isinstance(deaths, pd.DataFrame)
+            and {"tick", "user_steamid"}.issubset(deaths.columns)
+        )
+
+        player_death_ticks = []
+
+        if death_data_complete:
+            for _, death in deaths.iterrows():
+                victim_id = information.normalize_steamid(
+                    death["user_steamid"]
+                )
+
+                if victim_id != player_id:
+                    continue
+
+                death_tick = death["tick"]
+
+                if pd.notna(death_tick):
+                    player_death_ticks.append(int(death_tick))
+
+        for record in history:
+            if record["status"] != "available":
+                record["survival"] = {
+                    "status": "unknown",
+                    "survived": None,
+                    "death_tick": None,
+                }
+                continue
+
+            record["survival"] = get_round_survival(
+                player_death_ticks=player_death_ticks,
+                live_start_tick=record["live_start_tick"],
+                end_tick=record["end_tick"],
+                death_data_complete=death_data_complete,
+            )
+
+
+        from .player_economy_history import (
+            get_saved_equipment_candidate,
+        )
+
+        for record in history:
+            record["saved_equipment"] = (
+                get_saved_equipment_candidate(
+                    record,
+                    max_age_ticks=self.max_state_age_ticks,
+                )
+            )
+
+
+        for record in history:
+            key = (record["round"], player_id)
+
+            record["pre_buy"] = (
+                self.prebuy_snapshots.get(key)
+            )
+
+
+        return history
+
+
 
 
     def get_round_results(self):
