@@ -305,7 +305,12 @@ def analyze_demo(demo_path, player):
     # =========================
     # 2. Deaths
     # =========================
-    deaths_raw = parser.parse_event("player_death")
+    try:
+        # Teams at the death event remain valid across halftime/overtime.
+        deaths_raw = parser.parse_event("player_death", player=["team_num"])
+    except Exception:
+        # Missing team fields remain unknown in rewards; never use final teams.
+        deaths_raw = parser.parse_event("player_death")
 
     if deaths_raw.empty:
         raise ValueError(
@@ -811,6 +816,12 @@ def analyze_demo(demo_path, player):
         geometry=None,
     )
 
+    selected_players = player_info[player_info["name"] == player]
+    player_economy_history = (
+        match_library.get_player_economy_history(
+            information.normalize_steamid(selected_players.iloc[0]["steamid"])
+        ) if len(selected_players) == 1 else []
+    )
 
     # =========================
     # 4.1.0.1 Action episodes v2
@@ -1409,6 +1420,7 @@ def analyze_demo(demo_path, player):
     # =========================
     report_data = {
         "player": player,
+        "player_economy_history": player_economy_history,
         "map": map_name,
         "summary": {
             "kills": int(kills_count),

@@ -40,6 +40,9 @@ def build_player_economy_history(
         if rows.empty:
             records.append({
                 "round": int(match_round),
+                "demo_round": int(demo_round),
+                "live_start_tick": start,
+                "end_tick": end,
                 "status": "unavailable",
                 "post_buy": None,
                 "last_observed": None,

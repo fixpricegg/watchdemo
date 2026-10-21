@@ -3,6 +3,7 @@
 Construct once per match, query GameState(tick) many times. No DEM reparse per tick.
 """
 import pandas as pd
+from copy import deepcopy
 import information
 from .game_state import find_round, player_from_row
 from .economy import build_round_economy, build_team_loadout
@@ -10,6 +11,7 @@ from .economy import build_round_start_economy
 from .economy_history import build_economy_history
 from .round_results import build_round_results
 from .player_economy_history import build_player_economy_history
+from .economic_rewards import RewardRules, build_round_kill_rewards
 from .loss_bonus import (
     build_loss_counter_timeline,
     get_loss_counters_at_tick,
@@ -24,7 +26,9 @@ class MatchLibrary:
                  deaths_df=None, geometry=None, team_observations=None,
                  team_spot_windows=None, max_state_age_ticks=16,
                  round_ends=None,
-                 loss_counter_df=None, prebuy_snapshots=None,):
+                 loss_counter_df=None, prebuy_snapshots=None,
+                 kill_reward_history=None, economic_reward_rules=None,
+                 death_data_complete=True):
         if not {'tick', 'steamid', 'team_num'}.issubset(position_df.columns):
             raise ValueError('position_df requires tick, steamid, team_num')
         self.map_name = str(map_name)
@@ -52,6 +56,8 @@ class MatchLibrary:
             if normalized is not None:
                 self.player_streams[normalized] = stream
         self.deaths_df = deaths_df
+        self.death_data_complete = bool(death_data_complete)
+        self.economic_reward_rules = economic_reward_rules or RewardRules()
         self.team_observations = (team_observations if team_observations is not None
                                   else information.build_team_observations(self.position_df, self.round_intervals))
         if team_spot_windows is None:
@@ -61,6 +67,12 @@ class MatchLibrary:
         self.prebuy_snapshots = (
             prebuy_snapshots
             if prebuy_snapshots is not None
+            else {}
+        )
+        # Legacy counters are diagnostics only and never enter economy history.
+        self.engine_kill_reward_diagnostics = (
+            kill_reward_history
+            if kill_reward_history is not None
             else {}
         )
 
@@ -284,7 +296,8 @@ class MatchLibrary:
         deaths = self.deaths_df
 
         death_data_complete = (
-            deaths is not None
+            self.death_data_complete
+            and deaths is not None
             and isinstance(deaths, pd.DataFrame)
             and {"tick", "user_steamid"}.issubset(deaths.columns)
         )
@@ -337,13 +350,42 @@ class MatchLibrary:
 
         for record in history:
             key = (record["round"], player_id)
+            snapshot = self.prebuy_snapshots.get(key)
+            sample_tick = snapshot.get("sample_tick") if snapshot else None
+            # Historical legacy snapshots without a tick remain offline-only.
+            if current_tick is not None and (
+                sample_tick is None or int(sample_tick) > int(current_tick)
+                or int(sample_tick) > record["live_start_tick"]
+            ):
+                snapshot = None
+            record["pre_buy"] = deepcopy(snapshot)
 
-            record["pre_buy"] = (
-                self.prebuy_snapshots.get(key)
-            )
+
+        rewards = {r["round"]: r for r in self.get_player_economic_rewards(
+            player_id, current_tick=current_tick
+        )}
+        for record in history:
+            record["kill_rewards"] = rewards.get(record["round"])
+
 
 
         return history
+
+    def get_player_economic_rewards(self, player, current_tick=None):
+        """Ground-truth nominal kill awards; an optional as-of cutoff is inclusive.
+
+        Deliberately absent from get_decision_input: an opponent's ground-truth
+        reward history must not become team knowledge automatically.
+        """
+        player_id = information.normalize_steamid(player)
+        if player_id not in self.player_streams:
+            raise ValueError(f"No player stream found: {player}")
+        rewards = build_round_kill_rewards(
+            self.deaths_df, self.round_intervals, player_ids=[player_id],
+            current_tick=current_tick, rules=self.economic_reward_rules,
+            death_data_complete=self.death_data_complete,
+        )
+        return [record for (steamid, _), record in rewards.items() if steamid == player_id]
 
 
 
@@ -443,7 +485,9 @@ class MatchLibrary:
         return {
             "tick": state["tick"],
             "map": state["map"],
-            "round": state["round"],
+            # Actual end time is a future outcome during the current round.
+            "round": {key: value for key, value in state["round"].items()
+                      if key != "end_tick"},
             "perspective": state["perspective"],
 
             "team_players": friends,
