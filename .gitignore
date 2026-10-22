@@ -58,3 +58,27 @@ notes/
 
 # Generated frontend data
 frontend/src/data/
+# .NET build artifacts
+tools/nav_converter/bin/
+tools/nav_converter/obj/
+
+# Extracted CS2 nav files
+backend/maps/*.nav
+
+# Local geometry debug scripts
+backend/debug_geometry.py
+backend/debug_geometry_plot.py
+
+# Local backup patches
+watchdemo-working-backup.patch
+backend/watchdemo-working-backup.patch
+
+# Compiled C4 extractor binaries
+tools/c4_extractor/bin/
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Local test artifacts
+.pytest_cache/
