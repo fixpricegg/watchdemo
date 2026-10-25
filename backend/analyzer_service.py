@@ -1055,7 +1055,21 @@ def analyze_demo(demo_path, player):
         grenade_event_frames=grenade_event_frames,
     )
 
+    match_library.attach_radar_round_context(
+        radar_match["bomb"],
+        tickrate=TICKRATE,
+        round_time_seconds=ROUND_TIME_SECONDS,
+    )
+
     radar_match["kills"] = kill_feed
+
+
+    match_library.attach_event_timeline(
+        grenade_event_frames=grenade_event_frames,
+        bomb_event_frames=bomb_event_frames,
+        grenade_tracks=radar_match["grenades"],
+    )
+
 
     # radar.export_radar_json(
     #     radar_match,

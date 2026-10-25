@@ -12,13 +12,23 @@ from .economy_history import build_economy_history
 from .round_results import build_round_results
 from .player_economy_history import build_player_economy_history
 from .economic_rewards import RewardRules, build_round_kill_rewards
+from .round_state import build_round_state
 from .loss_bonus import (
     build_loss_counter_timeline,
     get_loss_counters_at_tick,
     get_next_loss_reward,
     get_loss_reward_for_round,
 )
+from .match_score import build_perspective_score
+from bisect import bisect_right
+from .event_timeline import EventTimeline
+from copy import deepcopy
 
+from .utility_state import (
+    build_player_utility_from_inventory,
+    build_team_utility,
+)
+from .active_utility import build_active_utility
 
 
 class MatchLibrary:
@@ -75,6 +85,10 @@ class MatchLibrary:
             if kill_reward_history is not None
             else {}
         )
+        self._bomb_states = []
+        self._bomb_ticks = []
+        self._round_tickrate = None
+        self._round_time_seconds = None
 
     def get_game_state(self, tick, player):
         """Return ground truth separate from team knowledge.
@@ -463,6 +477,308 @@ class MatchLibrary:
         ]
 
 
+    def attach_radar_round_context(
+        self, bomb, *, tickrate, round_time_seconds
+    ):
+        """Reuse existing radar C4 states; never reparse the demo."""
+        if bomb.get("coordinate_source") != "CC4/CPlantedC4":
+            raise ValueError("Real C4 entity source is required")
+
+        self._bomb_states = sorted(
+            [deepcopy(s) for s in bomb.get("states", [])
+             if s.get("tick") is not None],
+            key=lambda s: int(s["tick"]),
+        )
+        self._bomb_ticks = [
+            int(s["tick"]) for s in self._bomb_states
+        ]
+        self._round_tickrate = float(tickrate)
+        self._round_time_seconds = float(round_time_seconds)
+
+        if self._round_tickrate <= 0 or self._round_time_seconds <= 0:
+            raise ValueError("Invalid round clock configuration")
+
+    def get_bomb_ground_truth_at_tick(self, tick, round_info):
+        """Internal truth only. Never expose directly to Decision Input."""
+        index = bisect_right(self._bomb_ticks, int(tick)) - 1
+
+        if index < 0:
+            return None
+
+        sample = self._bomb_states[index]
+
+        if int(sample["tick"]) < int(round_info["live_start_tick"]):
+            return None
+
+        return deepcopy(sample)
+
+
+
+    def get_round_state(self, tick, player):
+        """Decision-safe round context at a specific tick."""
+        state = self.get_game_state(tick, player)
+        round_info = state["round"]
+
+        result = build_round_state(
+            tick=tick,
+            round_info=round_info,
+            players=state["ground_truth"]["players"],
+            completed_results=self.get_round_results_at_tick(tick),
+        )
+
+        result["score"] = self.get_match_score(tick, player)
+
+        # Clock estimate from configured match constants,
+        # never from the actual future round-end event.
+        if self._round_tickrate is not None:
+            elapsed = max(
+                0.0,
+                (int(tick) - int(round_info["live_start_tick"]))
+                / self._round_tickrate,
+            )
+            remaining = max(
+                0.0, self._round_time_seconds - elapsed
+            )
+            result["clock"] = {
+                "remaining_seconds": round(remaining, 2),
+                "status": "configured_estimate",
+            }
+
+        bomb_truth = self.get_bomb_ground_truth_at_tick(
+            tick, round_info
+        )
+
+        observer_team = state["perspective"]["team"]
+        bomb_status = (
+            bomb_truth.get("state")
+            if bomb_truth is not None
+            else None
+        )
+
+        # CT must not receive hidden C4 position or carrier.
+        # T can know its own team's carried/dropped bomb.
+        public_status = "unknown"
+
+        if bomb_status in ("planted", "defused", "exploded"):
+            public_status = bomb_status
+        elif observer_team == 2 and bomb_status in ("carried", "dropped"):
+            public_status = bomb_status
+
+        result["bomb"] = {
+            "status": public_status,
+            "carrier": (
+                bomb_truth.get("carrier_steamid")
+                if observer_team == 2
+                and public_status == "carried"
+                else None
+            ),
+            "site": None,
+            "source_tick": (
+                int(bomb_truth["tick"])
+                if public_status != "unknown"
+                and bomb_truth is not None
+                else None
+            ),
+        }
+
+        if public_status in ("planted", "defused", "exploded"):
+            # Standard round clock no longer describes
+            # the active bomb countdown.
+            result["clock"]["remaining_seconds"] = None
+            result["clock"]["status"] = "postplant_clock_unavailable"
+
+        return result
+
+
+
+    def get_match_score(self, tick, player):
+        """Score from completed results known by tick."""
+        state = self.get_game_state(tick, player)
+        player_id = state["perspective"]["steamid"]
+
+        stream = self.player_streams.get(player_id)
+        completed = self.get_round_results_at_tick(tick)
+        side_by_round = {}
+
+        if stream is not None:
+            intervals = {
+                int(match_round): (int(start), int(end))
+                for match_round, _, start, end
+                in self.round_intervals
+            }
+
+            for result in completed:
+                round_number = int(result["round"])
+                interval = intervals.get(round_number)
+
+                if interval is None:
+                    continue
+
+                start, end = interval
+
+                rows = stream[
+                    (stream["tick"] >= start)
+                    & (stream["tick"] < end)
+                    & stream["team_num"].isin([2, 3])
+                ]
+
+                if rows.empty:
+                    continue
+
+                side_number = int(rows.iloc[0]["team_num"])
+                side_by_round[round_number] = (
+                    "T" if side_number == 2 else "CT"
+                )
+
+        return build_perspective_score(
+            completed,
+            side_by_round,
+        )
+
+
+    def attach_event_timeline(
+        self,
+        *,
+        grenade_event_frames=None,
+        bomb_event_frames=None,
+        grenade_tracks=None,
+    ):
+        """Build the event index once from existing parsed data."""
+        self.event_timeline = EventTimeline(
+            round_intervals=self.round_intervals,
+            deaths_df=self.deaths_df,
+            grenade_event_frames=grenade_event_frames,
+            bomb_event_frames=bomb_event_frames,
+            grenade_tracks=grenade_tracks,
+        )
+
+    def get_event_history(
+        self,
+        tick,
+        *,
+        round_number=None,
+        limit=100,
+    ):
+        """Ground truth history, NOT team knowledge."""
+        if not hasattr(self, "event_timeline"):
+            raise RuntimeError("Event timeline has not been attached")
+
+        return self.event_timeline.history(
+            tick,
+            round_number=round_number,
+            limit=limit,
+        )
+
+
+    def get_player_utility_state(self, tick, player):
+        state = self.get_game_state(tick, player)
+        player_id = state["perspective"]["steamid"]
+
+        snapshot = next(
+            (
+                p for p in state["ground_truth"]["players"]
+                if str(p.get("steamid")) == str(player_id)
+            ),
+            None,
+        )
+
+        if snapshot is None or snapshot.get("inventory") is None:
+            return {
+                "status": "unavailable",
+                "items": None,
+                "counts": None,
+                "total": None,
+            }
+
+        utility = build_player_utility_from_inventory(snapshot)
+
+        return {
+            "status": "observed",
+            "items": utility["items"],
+            "counts": {
+                key: value
+                for key, value in utility.items()
+                if key not in ("items", "total")
+            },
+            "total": utility["total"],
+        }
+
+    def get_team_utility_state(self, tick, player):
+        state = self.get_game_state(tick, player)
+        team = state["perspective"]["team"]
+
+        teammates = [
+            p for p in state["ground_truth"]["players"]
+            if p.get("team") == team
+        ]
+
+        known = [
+            p for p in teammates
+            if p.get("inventory") is not None
+        ]
+
+        aggregate = build_team_utility(known)
+
+        complete = len(teammates) == 5 and len(known) == 5
+
+        return {
+            "status": "complete" if complete else "partial",
+            "team": team,
+            "observed_players": len(known),
+            "expected_players": 5,
+            "counts": {
+                key: value
+                for key, value in aggregate.items()
+                if key not in ("players", "total")
+            },
+            "observed_total": aggregate["total"],
+        }
+
+    def get_utility_history(self, tick, player, *, limit=100):
+        if not isinstance(limit, int) or limit < 1:
+            raise ValueError("limit must be positive")
+
+        state = self.get_game_state(tick, player)
+        round_number = state["round"]["number"]
+
+        if not hasattr(self, "event_timeline"):
+            raise RuntimeError("Event timeline is not attached")
+
+        events = self.event_timeline.history(
+            tick,
+            round_number=round_number,
+            limit=max(1, len(self.event_timeline.events)),
+        )
+
+        return deepcopy([
+            event for event in events
+            if event["kind"] == "utility"
+        ][-limit:])
+
+
+    def get_active_utility_effects(self, tick, player):
+        """
+        Ground-truth utility effects in the current round.
+        Not automatically safe for Decision Input.
+        """
+        state = self.get_game_state(tick, player)
+        round_number = state["round"]["number"]
+
+        if not hasattr(self, "event_timeline"):
+            raise RuntimeError("Event timeline is not attached")
+
+        events = self.event_timeline.history(
+            tick,
+            round_number=round_number,
+            limit=max(1, len(self.event_timeline.events)),
+        )
+
+        utility_events = [
+            event for event in events
+            if event["kind"] == "utility"
+        ]
+
+        return build_active_utility(utility_events, tick)
 
 
 
@@ -481,6 +797,7 @@ class MatchLibrary:
         ]
 
         team_side = "T" if observer_team == 2 else "CT"
+        round_state = self.get_round_state(tick, player)
 
         return {
             "tick": state["tick"],
@@ -497,4 +814,5 @@ class MatchLibrary:
             "known_enemies": state["team_knowledge"]["visual_enemies"],
             "other_information_sources": "not_implemented",
             "expected_state": state["expected_state"],
+            "round_state": round_state,
         }
