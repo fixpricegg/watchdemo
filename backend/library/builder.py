@@ -29,6 +29,7 @@ from .utility_state import (
     build_team_utility,
 )
 from .active_utility import build_active_utility
+from .visual_contact_history import build_visual_contact_history
 
 
 class MatchLibrary:
@@ -781,6 +782,45 @@ class MatchLibrary:
         return build_active_utility(utility_events, tick)
 
 
+
+    def get_visual_contact_history(
+        self, tick, player, *, limit_per_enemy=20
+    ):
+        """Observed enemy contact history without future positions."""
+        state = self.get_game_state(tick, player)
+
+        return build_visual_contact_history(
+            self.team_observations,
+            round_number=state["round"]["number"],
+            observer_team=state["perspective"]["team"],
+            tick=tick,
+            limit_per_enemy=limit_per_enemy,
+        )
+
+
+    def get_team_knowledge_snapshot(self, tick, player):
+        """
+        Existing team visual knowledge with explicit coverage.
+
+        No hidden enemies, no future event history.
+        """
+        state = self.get_game_state(tick, player)
+
+        return {
+            "tick": state["tick"],
+            "round": state["round"]["number"],
+            "perspective": deepcopy(state["perspective"]),
+            "visual_enemies": deepcopy(
+                state["team_knowledge"]["visual_enemies"]
+            ),
+            "source_coverage": {
+                "visual": "available",
+                "voice": "unavailable",
+                "audio": "not_implemented",
+                "radar_calls": "not_implemented",
+            },
+            "completeness": "partial",
+        }
 
 
 
