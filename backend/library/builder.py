@@ -30,6 +30,8 @@ from .utility_state import (
 )
 from .active_utility import build_active_utility
 from .visual_contact_history import build_visual_contact_history
+from .candidate_actions import build_candidate_actions
+
 
 
 class MatchLibrary:
@@ -821,6 +823,104 @@ class MatchLibrary:
             },
             "completeness": "partial",
         }
+
+
+
+    def get_decision_context(
+        self, tick, player, *, lookback_ticks=192
+    ):
+        """
+        Decision context at a requested tick.
+
+        No future movement, hidden enemy coordinates,
+        or hypothetical actions are included.
+        """
+        tick = int(tick)
+
+        if lookback_ticks < 0:
+            raise ValueError("lookback_ticks must be nonnegative")
+
+        state = self.get_game_state(tick, player)
+        decision = self.get_decision_input(tick, player)
+
+        perspective = state["perspective"]
+        player_id = perspective["steamid"]
+        round_info = state["round"]
+
+        stream = self.player_streams.get(player_id)
+        actual_path = []
+
+        if stream is not None:
+            start = max(
+                int(round_info["live_start_tick"]),
+                tick - lookback_ticks,
+            )
+
+            rows = stream[
+                (stream["tick"] >= start)
+                & (stream["tick"] <= tick)
+            ].sort_values("tick")
+
+            for _, row in rows.iterrows():
+                position = {
+                    "x": float(row["X"]),
+                    "y": float(row["Y"]),
+                    "z": float(row["Z"]),
+                }
+
+                if all(
+                    __import__("math").isfinite(value)
+                    for value in position.values()
+                ):
+                    actual_path.append({
+                        "tick": int(row["tick"]),
+                        "position": position,
+                    })
+
+        teammates = [
+            {
+                "steamid": p["steamid"],
+                "position": deepcopy(p["position"]),
+                "sample_tick": p["sample_tick"],
+                "status": deepcopy(p["status"]),
+            }
+            for p in decision["team_players"]
+            if p["steamid"] != player_id
+        ]
+
+        result = {
+            "schema_version": "decision_context_v1",
+            "tick": tick,
+            "map": state["map"],
+            "round": deepcopy(decision["round"]),
+            "perspective": deepcopy(perspective),
+            "player_path": actual_path,
+            "teammates": teammates,
+            "known_enemies": deepcopy(
+                decision["known_enemies"]
+            ),
+            "visual_contact_history":
+                self.get_visual_contact_history(tick, player),
+            "player_utility":
+                self.get_player_utility_state(tick, player),
+            "round_state": deepcopy(decision["round_state"]),
+            "information_coverage": {
+                "visual": "approximate",
+                "voice": "unavailable",
+                "audio": "not_implemented",
+            },
+            "candidate_actions": [],
+            "evaluation_status": "not_evaluated",
+        }
+
+
+        result["candidate_actions"] = build_candidate_actions(
+            result,
+            team_players=decision["team_players"],
+            max_state_age_ticks=self.max_state_age_ticks,
+        )
+
+        return result
 
 
 
