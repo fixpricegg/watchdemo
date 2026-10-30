@@ -1,5 +1,5 @@
 from demoparser2 import DemoParser
-from missed_trade import get_possible_missed_trades
+from detectors.missed_trade import get_possible_missed_trades
 from report import generate_report
 import radar
 from bomb_entities import parse_bomb_entities
@@ -7,6 +7,7 @@ from library.loss_bonus import CT_LOSS_FIELD, T_LOSS_FIELD
 from library.player_economy_history import (
     build_prebuy_snapshots,
 )
+from pathlib import Path
 import information
 import map_geometry
 import candidates
@@ -803,6 +804,18 @@ def analyze_demo(demo_path, player):
         round_intervals,
     )
 
+    # Geometry is available only for validated maps.
+    geometry = None
+
+    if map_name == "de_nuke":
+        nav_path = (
+                Path(__file__).resolve().parent
+                / "maps"
+                / "de_nuke_nav.json"
+        )
+        geometry = map_geometry.MapGeometry(nav_path)
+
+
     match_library = MatchLibrary(
         map_name=map_name,
         position_df=position_df,
@@ -813,8 +826,13 @@ def analyze_demo(demo_path, player):
         team_spot_windows=team_spot_windows,
         loss_counter_df=loss_counter_df,
         prebuy_snapshots=prebuy_snapshots,
-        geometry=None,
+        geometry=geometry,
+
     )
+
+
+
+
 
     selected_players = player_info[player_info["name"] == player]
     player_economy_history = (
@@ -857,16 +875,15 @@ def analyze_demo(demo_path, player):
         )
 
 
+
     movement_episode_contexts = []
 
-    if map_name == "de_nuke":
+    if geometry is not None:
         movement_episode_contexts = (
             episode_context
             .build_episode_contexts(
-                geometry=
-                map_geometry.MapGeometry(
-                    "maps/de_nuke_nav.json"
-                ),
+                geometry=geometry,
+
 
                 position_df=
                 position_df,
@@ -889,12 +906,13 @@ def analyze_demo(demo_path, player):
     # Geometry v1 сейчас реализована только для Nuke.
     # Для остальных карт analysis-core пока не запускаем,
     # чтобы случайно не анализировать их геометрией Nuke.
-    geometry = None
+
     all_candidate_events = []
     candidate_contexts = []
     potential_bad_entries = []
 
-    if map_name == "de_nuke":
+    if geometry is not None:
+
         geometry = map_geometry.MapGeometry(
             "maps/de_nuke_nav.json"
         )
@@ -1081,15 +1099,27 @@ def analyze_demo(demo_path, player):
     # =========================
     events = []
 
-    missed_trade_events = []
 
-    if position_df is not None:
-        missed_trade_events = get_possible_missed_trades(
-            player,
-            deaths_clean,
-            player_info,
-            position_df
+    trade_review_candidates = get_possible_missed_trades(
+        player,
+        lifecycle_deaths,
+        match_library,
+    )
+
+
+    print("\n=== MISSED TRADE DIAGNOSTICS ===")
+    print("Review candidates:", len(trade_review_candidates))
+
+    for candidate in trade_review_candidates:
+        print(
+            "Round:", candidate["round"],
+            "Tick:", candidate["tick"],
+            "Geometry:", candidate["geometry"]["status"],
+            "Distance:", candidate["geometry"]["nav_distance_estimate"],
+            "Evaluation:", candidate["evaluation_status"],
         )
+
+
 
     player_kills = deaths_clean[deaths_clean["attacker_name"] == player]
     player_deaths = deaths_clean[deaths_clean["user_name"] == player]
@@ -1157,24 +1187,28 @@ def analyze_demo(demo_path, player):
     # =========================
     # 5.2 Missed trades
     # =========================
-    for missed_trade in missed_trade_events:
+
+    # Candidate for review, not a confirmed mistake.
+    for candidate in trade_review_candidates:
         events.append(
             create_event(
-                event_type="missed_trade",
-                category="negative",
-                round_number=missed_trade["round"],
-                tick=missed_trade["tick"],
-                importance=2,
-                title="Missed Trade",
+                event_type="trade_review_candidate",
+                category="neutral",
+                round_number=candidate["round"],
+                tick=candidate["tick"],
+                importance=1,
+                title="Trade Opportunity — Review",
                 description=(
-                    f"После смерти {missed_trade['dead_teammate']} "
-                    f"у тебя мог быть размен. "
-                    f"{missed_trade['killer']} оставался жив ещё "
-                    f"{missed_trade['killer_alive_ticks'] / TICKRATE:.1f} сек."
+                    f"После смерти {candidate['dead_teammate']} "
+                    f"обнаружена ситуация для проверки размена. "
+                    f"Навигационный путь найден, но возможность "
+                    f"выстрела по {candidate['killer']} "
+                    f"не подтверждена."
                 ),
-                data=missed_trade
+                data=candidate,
             )
         )
+
 
     # =========================
     # 5.3 Trade kills

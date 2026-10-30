@@ -918,7 +918,9 @@ class MatchLibrary:
             result,
             team_players=decision["team_players"],
             max_state_age_ticks=self.max_state_age_ticks,
+            geometry=self.geometry,
         )
+
 
         return result
 

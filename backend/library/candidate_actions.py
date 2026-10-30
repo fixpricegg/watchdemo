@@ -45,6 +45,56 @@ def _distance(a, b):
     ))
 
 
+def _nav_info(geometry, start, target):
+    result = {
+        "status": "not_checked",
+        "area_path": None,
+        "distance_estimate": None,
+        "start_area_id": None,
+        "target_area_id": None,
+    }
+
+    if geometry is None:
+        return result
+
+    start_area = geometry.find_area(
+        start["x"], start["y"], start["z"]
+    )
+    target_area = geometry.find_area(
+        target["x"], target["y"], target["z"]
+    )
+
+    if start_area is None or target_area is None:
+        result["status"] = "area_unknown"
+        return result
+
+    start_id = start_area["id"]
+    target_id = target_area["id"]
+
+    result["start_area_id"] = start_id
+    result["target_area_id"] = target_id
+
+    path = geometry.shortest_path(start_id, target_id)
+
+    if path is None:
+        result["status"] = "no_nav_path"
+        return result
+
+    distance = 0.0
+
+    for i in range(len(path) - 1):
+        area_a = geometry.areas[path[i]]
+        area_b = geometry.areas[path[i + 1]]
+        distance += geometry.area_distance(area_a, area_b)
+
+    result["status"] = "nav_connected"
+    result["area_path"] = path
+    result["distance_estimate"] = round(distance, 2)
+
+    return result
+
+
+
 def _candidate(
     action_id,
     action_type,
@@ -74,7 +124,9 @@ def build_candidate_actions(
     *,
     team_players,
     max_state_age_ticks=16,
+    geometry=None,
 ):
+
     """Generate action candidates using information available at tick.
 
     Available: action is locally supported by observed state.
@@ -147,6 +199,7 @@ def build_candidate_actions(
 
     # Consider regrouping only with a currently observed,
     # alive teammate. This is not a validated route.
+
     teammates = []
 
     for teammate in team_players:
@@ -175,42 +228,104 @@ def build_candidate_actions(
         if teammate_position is None:
             continue
 
+        straight_distance = _distance(
+            actor_position,
+            teammate_position,
+        )
+
+        nav = _nav_info(
+            geometry,
+            actor_position,
+            teammate_position,
+        )
+
+        if nav["status"] == "nav_connected":
+            priority = 0
+            estimated_distance = nav["distance_estimate"]
+        elif nav["status"] in ("area_unknown", "not_checked"):
+            priority = 1
+            estimated_distance = straight_distance
+        else:
+            priority = 2
+            estimated_distance = straight_distance
+
         teammates.append((
-            _distance(actor_position, teammate_position),
+            priority,
+            estimated_distance,
+            straight_distance,
             teammate_id,
             teammate_tick,
             teammate_position,
+            nav,
         ))
 
     if teammates:
-        teammates.sort(key=lambda entry: (entry[0], entry[1]))
-        distance, teammate_id, teammate_tick, target = teammates[0]
+        teammates.sort(
+            key=lambda entry: (
+                entry[0],
+                entry[1],
+                entry[3],
+            )
+        )
+
+        (
+            priority,
+            estimated_distance,
+            straight_distance,
+            teammate_id,
+            teammate_tick,
+            target,
+            nav,
+        ) = teammates[0]
+
+        limitations = [
+            "Navigational connectivity does not guarantee traversability.",
+            "Enemy exposure has not been evaluated.",
+            "Target movement after this tick is unknown.",
+            "No tactical value has been evaluated.",
+        ]
+
+        if nav["status"] == "nav_connected":
+            limitations.append(
+                "Area-center distance is not exact travel distance."
+            )
+        else:
+            limitations.append(
+                "A navigation route has not been established."
+            )
 
         actions.append(
             _candidate(
                 "regroup_with_teammate",
                 "regroup",
                 feasibility="requires_validation",
-                reason="A living teammate has a recent known position.",
+                reason=(
+                    "A living teammate has a recent known position. "
+                    "Navigation evidence is reported separately."
+                ),
                 parameters={
                     "target_steamid": teammate_id,
                     "target_position": deepcopy(target),
-                    "straight_line_distance": round(distance, 2),
+                    "straight_line_distance": round(
+                        straight_distance, 2
+                    ),
                     "route": None,
+                    "navigation": deepcopy(nav),
                 },
                 evidence=[
                     {
                         "type": "teammate_position",
                         "source_tick": teammate_tick,
                         "steamid": teammate_id,
-                    }
+                    },
+                    {
+                        "type": "navigation_graph",
+                        "status": nav["status"],
+                        "start_area_id": nav["start_area_id"],
+                        "target_area_id": nav["target_area_id"],
+                    },
                 ],
-                limitations=[
-                    "Straight-line distance is not path distance.",
-                    "Traversability has not been validated.",
-                    "Enemy exposure has not been evaluated.",
-                    "Target movement after this tick is unknown.",
-                ],
+                limitations=limitations,
             )
         )
 

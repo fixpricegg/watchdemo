@@ -12,6 +12,7 @@ class TestDecisionContext(unittest.TestCase):
     def setUp(self):
         self.lib = MatchLibrary.__new__(MatchLibrary)
         self.lib.max_state_age_ticks = 16
+        self.lib.geometry = None
 
         self.lib.player_streams = {
             "123": pd.DataFrame([
