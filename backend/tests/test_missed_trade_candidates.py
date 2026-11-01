@@ -76,7 +76,7 @@ class FakeLibrary:
                 "status": {"is_alive": True},
             },
         ]
-
+        self.team_observations = []
         self.round_end = 1000
 
     def get_game_state(self, tick, player):
@@ -146,6 +146,18 @@ class TestMissedTradeCandidates(unittest.TestCase):
             candidate["geometry"]["trade_feasibility"],
             "not_established",
         )
+        self.assertEqual(
+            candidate["display_eligibility"],
+            "review_only",
+        )
+        self.assertEqual(
+            candidate["contact"]["line_of_fire"],
+            "not_verified",
+        )
+        self.assertFalse(
+            candidate["contact"]["personal_contact_observed"]
+        )
+
 
     def test_wrong_team_is_rejected(self):
         self.library.players[1]["team"] = 3

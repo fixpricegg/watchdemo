@@ -5,6 +5,8 @@ import information
 import pandas as pd
 
 from library.trade_geometry import assess_trade_geometry
+from library.trade_contact import assess_trade_contact
+
 
 
 TICKRATE = 64
@@ -210,8 +212,19 @@ def get_possible_missed_trades(
 
         # Until navigation evidence is present, do not
         # emit a user-facing review candidate.
+
         if navigation["status"] != "nav_connected":
             continue
+
+        contact = assess_trade_contact(
+            match_library.team_observations,
+            round_number=death_round,
+            observer_team=actor_team,
+            player_steamid=player_id,
+            killer_steamid=killer_id,
+            start_tick=death_tick,
+            end_tick=death_tick + trade_window_ticks,
+        )
 
         candidates.append({
             "type": "trade_review_candidate",
@@ -236,6 +249,9 @@ def get_possible_missed_trades(
                 "The killer's future survival is outcome data, not decision input.",
                 "Trade feasibility has not been established.",
             ],
+            "contact": contact,
+            "display_eligibility": "review_only",
+
         })
 
     return candidates

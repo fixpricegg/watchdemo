@@ -2,6 +2,8 @@ from demoparser2 import DemoParser
 from detectors.missed_trade import get_possible_missed_trades
 from report import generate_report
 import radar
+import os
+from library.geometry_layer import GeometryLayer
 from bomb_entities import parse_bomb_entities
 from library.loss_bonus import CT_LOSS_FIELD, T_LOSS_FIELD
 from library.player_economy_history import (
@@ -816,6 +818,20 @@ def analyze_demo(demo_path, player):
         geometry = map_geometry.MapGeometry(nav_path)
 
 
+    collision_geometry = None
+
+    if map_name == "de_nuke":
+        collision_path = os.environ.get(
+            "WATCHDEMO_NUKE_COLLISION_GLTF"
+        )
+
+        if collision_path:
+            collision_geometry = GeometryLayer.from_gltf(
+                collision_path
+            )
+
+
+
     match_library = MatchLibrary(
         map_name=map_name,
         position_df=position_df,
@@ -827,7 +843,7 @@ def analyze_demo(demo_path, player):
         loss_counter_df=loss_counter_df,
         prebuy_snapshots=prebuy_snapshots,
         geometry=geometry,
-
+        collision_geometry=collision_geometry,
     )
 
 
@@ -1106,18 +1122,6 @@ def analyze_demo(demo_path, player):
         match_library,
     )
 
-
-    print("\n=== MISSED TRADE DIAGNOSTICS ===")
-    print("Review candidates:", len(trade_review_candidates))
-
-    for candidate in trade_review_candidates:
-        print(
-            "Round:", candidate["round"],
-            "Tick:", candidate["tick"],
-            "Geometry:", candidate["geometry"]["status"],
-            "Distance:", candidate["geometry"]["nav_distance_estimate"],
-            "Evaluation:", candidate["evaluation_status"],
-        )
 
 
 

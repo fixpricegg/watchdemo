@@ -36,7 +36,7 @@ from .candidate_actions import build_candidate_actions
 
 class MatchLibrary:
     def __init__(self, *, map_name, position_df, round_intervals,
-                 deaths_df=None, geometry=None, team_observations=None,
+                 deaths_df=None, geometry=None, collision_geometry=None, team_observations=None,
                  team_spot_windows=None, max_state_age_ticks=16,
                  round_ends=None,
                  loss_counter_df=None, prebuy_snapshots=None,
@@ -55,6 +55,7 @@ class MatchLibrary:
             if loss_counter_df is not None
             else []
         )
+        self.collision_geometry = collision_geometry
         self.geometry = geometry
         self.max_state_age_ticks = int(max_state_age_ticks)
         self.position_df = position_df.copy()
@@ -138,6 +139,22 @@ class MatchLibrary:
                 "CT": build_team_loadout(snapshots, 3),
             },
         }
+
+
+    def trace_static_line(self, start, end):
+        if self.collision_geometry is None:
+            return {
+                "status": "unknown",
+                "reason": "collision_geometry_unavailable",
+                "hit": None,
+                "model": "static_collision_candidates",
+                "validation": "unavailable",
+                "dynamic_obstacles_checked": False,
+                "game_bullet_trace": False,
+            }
+
+        return self.collision_geometry.trace_line(start, end)
+
 
 
     def get_round_start_economy(self, tick, player):
