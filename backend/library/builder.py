@@ -31,6 +31,7 @@ from .utility_state import (
 from .active_utility import build_active_utility
 from .visual_contact_history import build_visual_contact_history
 from .candidate_actions import build_candidate_actions
+from .player_constraints import assess_player_constraints
 
 
 
@@ -841,7 +842,27 @@ class MatchLibrary:
             "completeness": "partial",
         }
 
+    def get_player_constraints(self, tick, player):
+        state = self.get_game_state(tick, player)
+        player_id = state["perspective"]["steamid"]
 
+        ground_truth = state.get("ground_truth") or {}
+        players = ground_truth.get("players") or []
+
+        snapshot = next(
+            (
+                item
+                for item in players
+                if item.get("steamid") == player_id
+            ),
+            None,
+        )
+
+        return assess_player_constraints(
+            snapshot,
+            tick=state["tick"],
+            max_age_ticks=self.max_state_age_ticks,
+        )
 
     def get_decision_context(
         self, tick, player, *, lookback_ticks=192
@@ -920,6 +941,8 @@ class MatchLibrary:
                 self.get_visual_contact_history(tick, player),
             "player_utility":
                 self.get_player_utility_state(tick, player),
+            "player_constraints":
+                self.get_player_constraints(tick, player),
             "round_state": deepcopy(decision["round_state"]),
             "information_coverage": {
                 "visual": "approximate",

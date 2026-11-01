@@ -59,6 +59,19 @@ class TestDecisionContext(unittest.TestCase):
             return_value={"status": "observed", "items": []}
         )
 
+    def test_player_constraints_in_context(self):
+        result = self.lib.get_decision_context(150, "123")
+
+        self.assertIn("player_constraints", result)
+        self.assertEqual(
+            result["player_constraints"]["status"],
+            "unknown",
+        )
+        self.assertEqual(
+            result["player_constraints"]["shooting_feasibility"],
+            "not_established",
+        )
+
     def test_no_future_path(self):
         result = self.lib.get_decision_context(150, "123")
 
