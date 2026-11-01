@@ -98,3 +98,45 @@ def assess_trade_geometry(geometry, player_position, killer_position):
     )
 
     return result
+
+
+def assess_trade_static_collision(
+    match_library,
+    player_position,
+    killer_position,
+):
+    result = {
+        "status": "unknown",
+        "reason": "not_checked",
+        "trace": None,
+        "endpoint_model": "sampled_player_origins",
+        "line_of_sight_verified": False,
+    }
+
+    if not (
+        _valid_position(player_position)
+        and _valid_position(killer_position)
+    ):
+        result["reason"] = "invalid_position"
+        return result
+
+    start = [
+        float(player_position[axis])
+        for axis in ("x", "y", "z")
+    ]
+    end = [
+        float(killer_position[axis])
+        for axis in ("x", "y", "z")
+    ]
+
+    if not callable(getattr(match_library, "trace_static_line", None)):
+        result["reason"] = "collision_geometry_unavailable"
+        return result
+
+    trace = match_library.trace_static_line(start, end)
+
+    result["status"] = trace["status"]
+    result["reason"] = trace["reason"]
+    result["trace"] = trace
+
+    return result

@@ -4,7 +4,10 @@ import math
 import information
 import pandas as pd
 
-from library.trade_geometry import assess_trade_geometry
+from library.trade_geometry import (
+    assess_trade_geometry,
+    assess_trade_static_collision,
+)
 from library.trade_contact import assess_trade_contact
 
 
@@ -216,6 +219,12 @@ def get_possible_missed_trades(
         if navigation["status"] != "nav_connected":
             continue
 
+        static_collision = assess_trade_static_collision(
+            match_library,
+            player_position,
+            killer_position,
+        )
+
         contact = assess_trade_contact(
             match_library.team_observations,
             round_number=death_round,
@@ -241,6 +250,9 @@ def get_possible_missed_trades(
             "killer_distance_2d": round(killer_distance, 2),
             "trade_window_ticks": trade_window_ticks,
             "geometry": navigation,
+            "static_collision": static_collision,
+            "confidence": None,
+            "severity": None,
             "evidence_scope": "post_match_ground_truth",
             "limitations": [
                 "Line of sight has not been verified.",
@@ -248,6 +260,8 @@ def get_possible_missed_trades(
                 "Enemy location was not necessarily known to the player.",
                 "The killer's future survival is outcome data, not decision input.",
                 "Trade feasibility has not been established.",
+                "Static trace uses sampled player origins, not eye positions.",
+                "Static collision tracing is experimental and is not verified LOS.",
             ],
             "contact": contact,
             "display_eligibility": "review_only",
