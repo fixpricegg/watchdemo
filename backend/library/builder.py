@@ -32,6 +32,7 @@ from .active_utility import build_active_utility
 from .visual_contact_history import build_visual_contact_history
 from .candidate_actions import build_candidate_actions
 from .player_constraints import assess_player_constraints
+from .player_effects import build_player_effects
 
 
 
@@ -140,6 +141,51 @@ class MatchLibrary:
                 "CT": build_team_loadout(snapshots, 3),
             },
         }
+
+
+    def get_player_effects(self, tick, player):
+        state = self.get_game_state(tick, player)
+        round_number = state["round"]["number"]
+
+        active_utility = {
+            "status": "unavailable",
+            "ongoing_candidates": [],
+            "ended": [],
+        }
+        explosions = []
+
+        if getattr(self, "event_timeline", None) is not None:
+            events = self.event_timeline.history(
+                tick,
+                round_number=round_number,
+                limit=max(1, len(self.event_timeline.events)),
+            )
+
+            utility_events = [
+                event for event in events
+                if event["kind"] == "utility"
+            ]
+
+            active_utility = build_active_utility(
+                utility_events, tick
+            )
+
+            explosions = [
+                {
+                    "tick": event["tick"],
+                    "data": deepcopy(event.get("data") or {}),
+                }
+                for event in utility_events
+                if event["type"] == "hegrenade_detonate"
+                and tick - 64 <= int(event["tick"]) <= tick
+            ]
+
+        return build_player_effects(
+            state["ground_truth"]["players"],
+            tick=tick,
+            active_utility=active_utility,
+            recent_explosions=explosions,
+        )
 
 
     def trace_static_line(self, start, end):
@@ -863,6 +909,94 @@ class MatchLibrary:
             tick=state["tick"],
             max_age_ticks=self.max_state_age_ticks,
         )
+
+    def get_player_constraints_timeline(
+        self, start_tick, end_tick, player
+    ):
+        start_tick = int(start_tick)
+        end_tick = int(end_tick)
+
+        if end_tick < start_tick:
+            raise ValueError("Invalid temporal window")
+
+        state = self.get_game_state(start_tick, player)
+        round_info = state["round"]
+        round_start = int(round_info["live_start_tick"])
+        round_end = int(round_info["end_tick"])
+
+        if (
+            start_tick < round_start
+            or end_tick >= round_end
+        ):
+            raise ValueError("Window outside live round")
+
+        player_id = state["perspective"]["steamid"]
+        stream = self.player_streams.get(player_id)
+
+        result = {
+            "start_tick": start_tick,
+            "end_tick": end_tick,
+            "player_steamid": player_id,
+            "status": "unavailable",
+            "samples": [],
+            "sample_count": 0,
+            "coverage": "not_established",
+            "continuous_state_verified": False,
+        }
+
+        if stream is None or stream.empty:
+            return result
+
+        previous = stream[
+            (stream["tick"] <= start_tick)
+            & (stream["tick"] >= round_start)
+        ].sort_values("tick")
+
+        selected = stream[
+            (stream["tick"] > start_tick)
+            & (stream["tick"] <= end_tick)
+        ].sort_values("tick")
+
+        if not previous.empty:
+            latest = previous.iloc[[-1]]
+
+            age = start_tick - int(latest.iloc[0]["tick"])
+
+            if 0 <= age <= self.max_state_age_ticks:
+                selected = pd.concat(
+                    [latest, selected],
+                    ignore_index=True,
+                )
+
+        selected = selected.drop_duplicates(
+            subset=["tick"], keep="last"
+        ).sort_values("tick")
+
+        for _, row in selected.iterrows():
+            snapshot = player_from_row(
+                row, self.geometry
+            )
+
+            sample_tick = int(row["tick"])
+
+            constraints = assess_player_constraints(
+                snapshot,
+                tick=sample_tick,
+                max_age_ticks=self.max_state_age_ticks,
+            )
+
+            result["samples"].append({
+                "tick": sample_tick,
+                "constraints": constraints,
+            })
+
+        result["sample_count"] = len(result["samples"])
+
+        if result["samples"]:
+            result["status"] = "observed_samples"
+            result["coverage"] = "sampled_only"
+
+        return result
 
     def get_decision_context(
         self, tick, player, *, lookback_ticks=192
