@@ -41,6 +41,17 @@ RESULT = {
 }
 
 
+def authenticate(client, email="storage@example.com", password="Storage-Password-123"):
+    initial = client.get("/auth/session")
+    client.headers["X-CSRF-Token"] = initial.json()["csrf_token"]
+    registered = client.post("/auth/register", json={"email": email, "password": password, "display_name": "Storage User"})
+    assert registered.status_code in (200, 409), registered.text
+    logged = client.post("/auth/login", json={"email": email, "password": password})
+    assert logged.status_code == 200, logged.text
+    client.headers["X-CSRF-Token"] = logged.json()["csrf_token"]
+    return logged.json()["user"]
+
+
 class StorageUnitTests(unittest.TestCase):
     def test_migration_checksum_is_portable_across_windows_and_linux(self):
         with tempfile.TemporaryDirectory() as root:
@@ -78,6 +89,9 @@ class StorageUnitTests(unittest.TestCase):
                      "Set WATCHDEMO_TEST_DATABASE_URL to run real PostgreSQL integration tests")
 class PostgreSQLStorageTests(unittest.TestCase):
     def setUp(self):
+        self.environment = patch.dict(os.environ, {"WATCHDEMO_COOKIE_SECURE": "false"})
+        self.environment.start()
+        self.addCleanup(self.environment.stop)
         self.url = os.environ["WATCHDEMO_TEST_DATABASE_URL"]
         self.schema = "watchdemo_test_" + uuid4().hex
         self.repo = Repository(self.url, schema=self.schema)
@@ -86,6 +100,7 @@ class PostgreSQLStorageTests(unittest.TestCase):
         self.directory = Path(self.temp.name) / "uploads"
         self.client = TestClient(create_app(repository=self.repo, upload_dir=self.directory))
         self.client.__enter__()
+        self.user = authenticate(self.client)
 
     def tearDown(self):
         self.client.__exit__(None, None, None)
@@ -117,9 +132,9 @@ class PostgreSQLStorageTests(unittest.TestCase):
         uploaded = self.upload()
         self.repo.migrate()
         self.repo.check_schema()
-        self.assertIsNotNone(self.repo.get_match(uploaded["match_id"]))
+        self.assertIsNotNone(self.repo.get_match(uploaded["match_id"], self.user["id"]))
         with self.repo.connect() as conn:
-            self.assertEqual(conn.execute("SELECT count(*) AS n FROM schema_migrations").fetchone()["n"], 1)
+            self.assertEqual(conn.execute("SELECT count(*) AS n FROM schema_migrations").fetchone()["n"], 2)
 
     def test_migration_checksum_mismatch_is_detected(self):
         with self.repo.connect() as conn:
@@ -140,6 +155,7 @@ class PostgreSQLStorageTests(unittest.TestCase):
         analyzed = self.analyze(uploaded)
         (self.directory / uploaded["filename"]).unlink()
         with TestClient(create_app(repository=Repository(self.url, self.schema), upload_dir=self.directory)) as fresh:
+            authenticate(fresh)
             with patch("app.analyze_demo", side_effect=AssertionError("Must not reanalyze")), \
                  patch("app.DemoParser", side_effect=AssertionError("Must not reparse")):
                 report = fresh.get(f"/reports/{analyzed['report_id']}").json()
@@ -279,11 +295,12 @@ class PostgreSQLStorageTests(unittest.TestCase):
                 VALUES (%s, %s, '123', 'interrupted', 'processing')""", (interrupted_id, uploaded["match_id"]))
         with self.repo.analysis(uploaded["match_id"], "123", "live") as live_id:
             with TestClient(create_app(repository=Repository(self.url, self.schema), upload_dir=self.directory)) as fresh:
+                authenticate(fresh)
                 self.assertEqual(fresh.get(f"/reports/{interrupted_id}").json()["status"], "failed")
                 self.assertEqual(fresh.get(f"/reports/{live_id}").json()["status"], "processing")
             self.repo.complete_report(live_id, RESULT)
         self.repo.recover_interrupted()
-        self.assertEqual(self.repo.get_report(live_id)["result"], RESULT)
+        self.assertEqual(self.repo.get_report(live_id, self.user["id"])["result"], RESULT)
 
     def test_numpy_snapshot_roundtrips_through_postgresql_and_http(self):
         value = deepcopy(RESULT)
@@ -326,6 +343,7 @@ class PostgreSQLStorageTests(unittest.TestCase):
                             time.sleep(0.1)
                         else:
                             self.fail("Server did not start")
+                        authenticate(http)
                         response = http.get(f"/reports/{analyzed['report_id']}")
                         self.assertEqual(response.status_code, 200)
                         results.append(response.json())

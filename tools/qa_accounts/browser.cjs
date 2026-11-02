@@ -1,0 +1,41 @@
+const { chromium } = require(require('path').resolve(__dirname, '../../.test-tools/node_modules/playwright'));
+(async () => {
+  const browser = await chromium.launch({executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true});
+  try {
+    const page = await browser.newPage();
+    const errors=[];page.on('pageerror', e=>errors.push(e.message));
+    const base='http://127.0.0.1:5173';
+    await page.goto(base+'/login');
+    await page.getByLabel('Email', {exact:true}).fill('browser@example.com');
+    await page.getByLabel('Пароль (12–128 символов)', {exact:true}).fill('Browser-Password-123');
+    await page.getByRole('button',{name:'Продолжить'}).click();
+    await page.waitForURL('**/reports');
+    await page.getByRole('link',{name:'Открыть отчёт'}).click();
+    await page.getByRole('heading',{name:'Тестовый игрок',exact:true}).waitFor();
+    const reportURL=page.url();
+    await page.reload();
+    await page.getByRole('heading',{name:'Тестовый игрок',exact:true}).waitFor();
+    await page.getByRole('link',{name:'Browser User',exact:true}).click();
+    await page.getByLabel('Имя',{exact:true}).fill('Browser Edited');
+    await page.getByRole('button',{name:'Продолжить'}).click();
+    await page.getByRole('link',{name:'Browser Edited',exact:true}).waitFor();
+    await page.getByRole('button',{name:'Выйти',exact:true}).click();
+    await page.waitForURL('**/login');
+    await page.goto(base+'/register');
+    await page.getByLabel('Email',{exact:true}).fill('browser-other@example.com');
+    await page.getByLabel('Имя',{exact:true}).fill('Browser Other');
+    await page.getByLabel('Пароль (12–128 символов)',{exact:true}).fill('Browser-Password-123');
+    await page.getByRole('button',{name:'Продолжить'}).click();
+    await page.getByRole('status').filter({hasText:'Аккаунт создан'}).waitFor();
+    await page.goto(base+'/login');
+    await page.getByLabel('Email',{exact:true}).fill('browser-other@example.com');
+    await page.getByLabel('Пароль (12–128 символов)',{exact:true}).fill('Browser-Password-123');
+    await page.getByRole('button',{name:'Продолжить'}).click();
+    await page.waitForURL('**/reports');
+    await page.getByText('Отчётов пока нет.',{exact:false}).waitFor();
+    await page.goto(reportURL);
+    await page.getByRole('alert').filter({hasText:'Отчёт не найден'}).waitFor();
+    if(errors.length) throw new Error(errors.join('\n'));
+    console.log('BROWSER_OK: login, saved report, reload, profile, logout, registration, B ownership denial; no page errors');
+  } finally {await browser.close();}
+})().catch(e=>{console.error(e);process.exitCode=1;});

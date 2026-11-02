@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Route, Routes, useNavigate } from "react-router-dom";
 import "./App.css";
+import AccountShell from "./pages/AccountShell";
 import Header from "./components/Header";
 import MatchReplay from "./components/MatchReplay";
 import HomePage from "./pages/HomePage";
@@ -9,7 +10,7 @@ import SavedReportsPage from "./pages/SavedReportsPage";
 import SavedReportPage from "./pages/SavedReportPage";
 import { fetchJSON } from "./api";
 
-function App() {
+function Workspace() {
     const navigate = useNavigate();
     const [demoFile, setDemoFile] = useState(null);
     const [players, setPlayers] = useState([]);
@@ -86,4 +87,6 @@ function App() {
     );
 }
 
-export default App;
+export default function App() {
+    return <AccountShell><Workspace /></AccountShell>;
+}

@@ -98,9 +98,9 @@ by the new upload endpoint. It does not accept arbitrary preexisting file names.
 Use `match_id` for new integrations. The analyzer's result fields are preserved;
 the frontend's legacy `/match` view remains available for in-memory results.
 
-Accounts/ownership are outside this change: the existing app has no auth layer,
-so this history is shared by the local app instance. JSON export, a background
-job queue and automatic migration of old loose report files are separate work.
+Accounts and ownership were added in migration 002; see [accounts-ivr.md](accounts-ivr.md).
+All application reads now require the owner's session. Old ownerless rows remain
+private. JSON export, background jobs and importing loose report files remain separate work.
 
 ## Tests
 

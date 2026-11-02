@@ -84,21 +84,21 @@ class Repository:
         if applied != expected:
             raise RuntimeError("Storage schema mismatch; run python manage_storage.py migrate")
 
-    def create_match(self, match_id, filename, players):
+    def create_match(self, match_id, filename, players, owner_id=None):
         with self.connect() as conn:
-            conn.execute("INSERT INTO matches (id, original_filename, players) VALUES (%s, %s, %s)",
-                         (match_id, filename, Jsonb(players)))
+            conn.execute("INSERT INTO matches (id, original_filename, players, owner_id) VALUES (%s, %s, %s, %s)",
+                         (match_id, filename, Jsonb(players), owner_id))
 
-    def get_match(self, match_id):
+    def get_match(self, match_id, owner_id=None):
         with self.connect() as conn:
-            return conn.execute("SELECT * FROM matches WHERE id = %s", (match_id,)).fetchone()
+            return conn.execute("SELECT * FROM matches WHERE id = %s AND owner_id = %s", (match_id, owner_id)).fetchone()
 
-    def list_matches(self, limit, offset):
+    def list_matches(self, limit, offset, owner_id=None):
         with self.connect() as conn:
             return conn.execute("""SELECT m.*, (
                 SELECT count(*) FROM reports r WHERE r.match_id = m.id
-            ) AS report_count FROM matches m
-                ORDER BY created_at DESC, id DESC LIMIT %s OFFSET %s""", (limit, offset)).fetchall()
+            ) AS report_count FROM matches m WHERE m.owner_id = %s
+                ORDER BY created_at DESC, id DESC LIMIT %s OFFSET %s""", (owner_id, limit, offset)).fetchall()
 
     @contextmanager
     def analysis(self, match_id, steamid, player_name):
@@ -142,17 +142,17 @@ class Repository:
                         WHERE id = %s AND status = 'processing'""",
                                  ("Обработка прервана перезапуском сервера; запустите анализ повторно", report_id))
 
-    def get_report(self, report_id):
+    def get_report(self, report_id, owner_id=None):
         with self.connect() as conn:
             return conn.execute("""SELECT r.*, m.original_filename FROM reports r
-                JOIN matches m ON m.id = r.match_id WHERE r.id = %s""", (report_id,)).fetchone()
+                JOIN matches m ON m.id = r.match_id WHERE r.id = %s AND m.owner_id = %s""", (report_id, owner_id)).fetchone()
 
-    def list_reports(self, limit, offset, match_id=None):
+    def list_reports(self, limit, offset, match_id=None, owner_id=None):
         # Never load the heavy replay snapshot for the history screen.
         with self.connect() as conn:
             return conn.execute("""SELECT r.id, r.match_id, r.steamid, r.player_name, r.status,
                 r.format_version, r.map_name, r.error, r.created_at, r.finished_at, m.original_filename
                 FROM reports r JOIN matches m ON m.id = r.match_id
-                WHERE (%s::uuid IS NULL OR r.match_id = %s)
+                WHERE m.owner_id = %s AND (%s::uuid IS NULL OR r.match_id = %s)
                 ORDER BY r.created_at DESC, r.id DESC LIMIT %s OFFSET %s""",
-                                (match_id, match_id, limit, offset)).fetchall()
+                                (owner_id, match_id, match_id, limit, offset)).fetchall()
