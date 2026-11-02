@@ -324,6 +324,43 @@ def analyze_demo(demo_path, player):
     # Здесь ничего не удаляем по оружию или причине смерти.
     lifecycle_deaths_raw = deaths_raw.copy()
 
+    combat_event_frames = {}
+
+    combat_required = {
+        "weapon_fire": {"tick", "user_steamid"},
+        "player_hurt": {
+            "tick",
+            "attacker_steamid",
+            "user_steamid",
+        },
+    }
+
+    for event_name, required in combat_required.items():
+        try:
+            frame = parser.parse_event(event_name)
+
+            if frame is None:
+                raise ValueError("Parser returned None")
+
+            if not isinstance(frame, pd.DataFrame):
+                frame = pd.DataFrame(frame)
+
+            if not frame.empty and not required.issubset(
+                frame.columns
+            ):
+                raise ValueError(
+                    f"Missing required columns: "
+                    f"{required - set(frame.columns)}"
+                )
+
+            combat_event_frames[event_name] = frame
+
+        except Exception as error:
+            print(
+                f"WARNING: {event_name} unavailable: {error}"
+            )
+            combat_event_frames[event_name] = None
+
     # Для статистики и старых метрик используем очищенную версию.
     deaths = clean_deaths(
         deaths_raw.copy()
@@ -1102,7 +1139,9 @@ def analyze_demo(demo_path, player):
         grenade_event_frames=grenade_event_frames,
         bomb_event_frames=bomb_event_frames,
         grenade_tracks=radar_match["grenades"],
+        combat_event_frames=combat_event_frames,
     )
+    timeline = match_library.event_timeline
 
 
     # radar.export_radar_json(

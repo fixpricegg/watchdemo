@@ -60,6 +60,7 @@ class EventTimeline:
         grenade_event_frames=None,
         bomb_event_frames=None,
         grenade_tracks=None,
+        combat_event_frames=None,
     ):
         self.round_intervals = [
             (int(number), int(start), int(end))
@@ -115,6 +116,69 @@ class EventTimeline:
                             "headshot": _optional(row.get("headshot")),
                         },
                     )
+
+        self.combat_parse_status = {}
+
+        required_fields = {
+            "weapon_fire": {"tick", "user_steamid"},
+            "player_hurt": {
+                "tick",
+                "attacker_steamid",
+                "user_steamid",
+            },
+        }
+
+        for name, required in required_fields.items():
+            frame = (combat_event_frames or {}).get(name)
+
+            valid = (
+                isinstance(frame, pd.DataFrame)
+                and (
+                    frame.empty
+                    or required.issubset(frame.columns)
+                )
+            )
+
+            self.combat_parse_status[name] = (
+                "parsed" if valid else "unavailable"
+            )
+
+            if not valid:
+                continue
+
+            for _, row in frame.iterrows():
+                if name == "weapon_fire":
+                    actor_id = _steamid(
+                        row.get("user_steamid")
+                    )
+                    victim_id = None
+                else:
+                    actor_id = _steamid(
+                        row.get("attacker_steamid")
+                    )
+                    victim_id = _steamid(
+                        row.get("user_steamid")
+                    )
+
+                append(
+                    row.get("tick"),
+                    "combat",
+                    name,
+                    "demo_event",
+                    {
+                        "actor_steamid": actor_id,
+                        "victim_steamid": victim_id,
+                        "weapon": _optional(
+                            row.get("weapon")
+                        ),
+                        "damage_health": (
+                            _optional(row.get("dmg_health"))
+                            if name == "player_hurt"
+                            else None
+                        ),
+                    },
+                )
+
 
         # The first actual sampled grenade trajectory point.
         # No future detonation/end data is attached to the launch.

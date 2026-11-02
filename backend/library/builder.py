@@ -709,6 +709,7 @@ class MatchLibrary:
         grenade_event_frames=None,
         bomb_event_frames=None,
         grenade_tracks=None,
+        combat_event_frames=None,
     ):
         """Build the event index once from existing parsed data."""
         self.event_timeline = EventTimeline(
@@ -717,6 +718,7 @@ class MatchLibrary:
             grenade_event_frames=grenade_event_frames,
             bomb_event_frames=bomb_event_frames,
             grenade_tracks=grenade_tracks,
+            combat_event_frames=combat_event_frames,
         )
 
     def get_event_history(
@@ -735,6 +737,73 @@ class MatchLibrary:
             round_number=round_number,
             limit=limit,
         )
+
+    def get_combat_window(self, start_tick, end_tick):
+        start_tick = int(start_tick)
+        end_tick = int(end_tick)
+
+        if end_tick < start_tick:
+            raise ValueError("Invalid combat window")
+
+        round_number = None
+
+        for number, _, start, end in self.round_intervals:
+            if start <= start_tick <= end_tick < end:
+                round_number = int(number)
+                break
+
+        if round_number is None:
+            raise ValueError("Window outside a single live round")
+
+        timeline = getattr(self, "event_timeline", None)
+
+        if timeline is None:
+            return {
+                "status": "unavailable",
+                "scope": "post_match_ground_truth",
+                "round": round_number,
+                "start_tick": start_tick,
+                "end_tick": end_tick,
+                "parse_status": {},
+                "events": [],
+            }
+
+        history = timeline.history(
+            end_tick,
+            round_number=round_number,
+            limit=max(1, len(timeline.events)),
+        )
+
+        events = [
+            event
+            for event in history
+            if (
+                event["kind"] == "combat"
+                and start_tick <= event["tick"] <= end_tick
+            )
+        ]
+
+        sources = deepcopy(timeline.combat_parse_status)
+
+        complete_sources = all(
+            status == "parsed"
+            for status in sources.values()
+        ) and len(sources) == 2
+
+        return {
+            "status": (
+                "sources_parsed"
+                if complete_sources
+                else "partial_source_coverage"
+            ),
+            "scope": "post_match_ground_truth",
+            "round": round_number,
+            "start_tick": start_tick,
+            "end_tick": end_tick,
+            "parse_status": sources,
+            "events": events,
+        }
+
 
 
     def get_player_utility_state(self, tick, player):
