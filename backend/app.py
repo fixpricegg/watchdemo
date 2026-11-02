@@ -2,7 +2,6 @@ from contextlib import asynccontextmanager
 import logging
 import os
 from pathlib import Path
-import shutil
 from uuid import UUID, uuid4
 
 from demoparser2 import DemoParser
@@ -19,6 +18,17 @@ from fastapi.exceptions import RequestValidationError
 
 
 logger = logging.getLogger(__name__)
+UPLOAD_CHUNK_BYTES = 1024 * 1024
+
+
+def copy_demo(source, destination, max_bytes):
+    """Bounded reads, including one lookahead byte at the exact size limit."""
+    total = 0
+    while chunk := source.read(min(UPLOAD_CHUNK_BYTES, max_bytes - total + 1)):
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(413, f"Размер demo превышает лимит {max_bytes} байт")
+        destination.write(chunk)
 
 
 class AnalyzeRequest(BaseModel):
@@ -54,6 +64,13 @@ def create_app(*, repository=None, upload_dir=None):
     directory = Path(configured_dir) if configured_dir else Path(__file__).with_name("uploads")
     directory = directory.resolve()
     application = FastAPI(title="WatchDemo API", lifespan=lifespan, dependencies=[Depends(protect_write)])
+    try:
+        max_upload_bytes = int(os.getenv("WATCHDEMO_MAX_DEMO_BYTES", str(1024 ** 3)))
+        if max_upload_bytes <= 0:
+            raise ValueError()
+    except ValueError:
+        raise RuntimeError("WATCHDEMO_MAX_DEMO_BYTES must be a positive integer") from None
+    application.state.max_upload_bytes = max_upload_bytes
     application.state.origins = [v.strip() for v in os.getenv("WATCHDEMO_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",") if v.strip()]
     application.include_router(auth_router)
 
@@ -96,7 +113,7 @@ def create_app(*, repository=None, upload_dir=None):
             # Never overwrite another upload, even if its original name matches.
             with destination.open("xb") as buffer:
                 created = True
-                shutil.copyfileobj(file.file, buffer)
+                copy_demo(file.file, buffer, request.app.state.max_upload_bytes)
             try:
                 player_info = DemoParser(str(destination)).parse_player_info()
                 players = [{

@@ -36,6 +36,9 @@ python -m uvicorn app:app --host 127.0.0.1 --port 8000
 переменные из `backend/.env.example` нужно экспортировать в окружение процесса.
 Для настоящего анализа нужна прежняя зависимость C4 extractor; путь можно задать
 через `WATCHDEMO_C4_EXTRACTOR`, не меняя анализатор.
+Размер содержимого demo ограничен `WATCHDEMO_MAX_DEMO_BYTES` (по умолчанию 1 GiB).
+Превышение даёт 413 без сохранения частичной копии или матча; точный лимит допустим.
+Подробности проверки: [upload-limit-review.md](upload-limit-review.md).
 
 Для HTTPS оставляйте `WATCHDEMO_COOKIE_SECURE=true` (значение по умолчанию).
 Cookie имеет HttpOnly, SameSite=Lax, Path=/, срок 7 дней и не имеет Domain.

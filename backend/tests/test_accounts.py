@@ -125,6 +125,34 @@ class AccountTests(unittest.TestCase):
         rejected = self.client.options("/auth/login", headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "POST"})
         self.assertNotIn("access-control-allow-origin", rejected.headers)
 
+    def test_missing_csrf_token_and_cross_session_token_cannot_write(self):
+        token = self.client.headers.pop("X-CSRF-Token")
+        for path, method, payload in [
+            ("/auth/logout", "POST", None),
+            ("/auth/profile", "PATCH", {"display_name": "Forbidden"}),
+            ("/auth/password", "POST", {"old_password": "Storage-Password-123", "password": "Forbidden-password-123"}),
+        ]:
+            with self.subTest(path=path):
+                self.assertEqual(self.client.request(method, path, json=payload).status_code, 403)
+        other = self.second_client()
+        other_token = other.get("/auth/session").json()["csrf_token"]
+        self.assertEqual(self.client.post("/auth/logout", headers={"X-CSRF-Token": other_token}).status_code, 403)
+        self.assertEqual(self.client.post("/auth/logout", headers={"X-CSRF-Token": b"\xff"}).status_code, 403)
+        self.client.headers["X-CSRF-Token"] = token
+        self.assertEqual(self.client.get("/auth/profile").json()["display_name"], "Storage User")
+
+    def test_forbidden_uploads_do_not_parse_or_create_data(self):
+        for headers in [{"X-CSRF-Token": ""}, {"Origin": "https://evil.example"}]:
+            with self.subTest(headers=headers), patch("app.DemoParser") as parser:
+                response = self.client.post("/demo/upload", files={"file": ("private.dem", b"input")}, headers=headers)
+                self.assertEqual(response.status_code, 403)
+                parser.assert_not_called()
+        anonymous = self.second_client()
+        anonymous.headers["X-CSRF-Token"] = anonymous.get("/auth/session").json()["csrf_token"]
+        self.assertEqual(anonymous.post("/demo/upload", files={"file": ("guest.dem", b"input")}).status_code, 401)
+        self.assertEqual(list(self.directory.iterdir()), [])
+        self.assertEqual(self.client.get("/matches").json()["matches"], [])
+
     def test_recovery_real_smtp_one_use_expiry_uniform_response_and_revocation(self):
         messages = []
         class Mailbox:

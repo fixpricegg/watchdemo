@@ -51,7 +51,9 @@ def csrf(request: Request):
     if origin is not None and origin not in request.app.state.origins:
         raise HTTPException(403, "Недопустимый Origin")
     row = session(request)
-    if row is None or not secrets.compare_digest(row["csrf_token"], request.headers.get("x-csrf-token", "")):
+    if row is None or not secrets.compare_digest(
+        row["csrf_token"].encode("utf-8"), request.headers.get("x-csrf-token", "").encode("utf-8")
+    ):
         raise HTTPException(403, "Обновите страницу: неверный CSRF-токен")
     return row
 
