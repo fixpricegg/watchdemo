@@ -37,6 +37,7 @@ from .predeath_support import (
     build_predeath_support,
     assess_support_timing,
 )
+from .trade_geometry import assess_support_geometry
 
 
 
@@ -808,6 +809,109 @@ class MatchLibrary:
             "events": events,
         }
 
+    def get_support_geometry_at_tick(
+        self,
+        tick,
+        player,
+        teammate_id,
+        killer_id,
+        *,
+        include_static_trace=False,
+    ):
+        tick = int(tick)
+
+        result = {
+            "status": "unavailable",
+            "tick": tick,
+            "scope": "post_match_ground_truth",
+            "support_opportunity": "not_established",
+            "sample_ticks": None,
+            "geometry": None,
+        }
+
+        try:
+            state = self.get_game_state(tick, player)
+        except ValueError:
+            return result
+
+        actor_id = state["perspective"]["steamid"]
+        teammate_id = information.normalize_steamid(teammate_id)
+        killer_id = information.normalize_steamid(killer_id)
+
+        if (
+            None in (actor_id, teammate_id, killer_id)
+            or len({actor_id, teammate_id, killer_id}) != 3
+        ):
+            result["status"] = "invalid_participants"
+            return result
+
+        snapshots = {
+            str(item["steamid"]): item
+            for item in state.get("ground_truth", {}).get("players", [])
+            if item.get("steamid") is not None
+        }
+
+        actor = snapshots.get(actor_id)
+        teammate = snapshots.get(teammate_id)
+        killer = snapshots.get(killer_id)
+
+        if actor is None or teammate is None or killer is None:
+            result["status"] = "missing_snapshot"
+            return result
+
+        for snapshot in (actor, teammate, killer):
+            try:
+                age = tick - int(snapshot["sample_tick"])
+            except (KeyError, ValueError, TypeError, OverflowError):
+                result["status"] = "invalid_sample_tick"
+                return result
+
+            if not 0 <= age <= self.max_state_age_ticks:
+                result["status"] = "stale_or_future_snapshot"
+                return result
+
+        actor_team = actor.get("team")
+
+        if (
+            actor_team not in (2, 3)
+            or teammate.get("team") != actor_team
+            or killer.get("team") not in (2, 3)
+            or killer.get("team") == actor_team
+        ):
+            result["status"] = "invalid_team_context"
+            return result
+
+        if actor.get("status", {}).get("is_alive") is False:
+            result["status"] = "not_applicable_actor_dead"
+            return result
+
+        if not all(
+            snapshot.get("status", {}).get("is_alive") is True
+            for snapshot in (actor, teammate, killer)
+        ):
+            result["status"] = "incomplete_life_state"
+            return result
+
+        result["sample_ticks"] = {
+            "actor": actor["sample_tick"],
+            "teammate": teammate["sample_tick"],
+            "killer": killer["sample_tick"],
+        }
+
+        geometry = assess_support_geometry(
+            self,
+            actor["position"],
+            teammate["position"],
+            killer["position"],
+            include_static_trace=include_static_trace,
+        )
+
+        result["geometry"] = geometry
+        result["status"] = geometry["status"]
+
+        return result
+
+
 
     def get_predeath_support_context(
         self,
@@ -843,12 +947,19 @@ class MatchLibrary:
 
         actor_life = "unknown"
         reference_tick = timing["reference_tick"]
+        evidence_tick = (
+            min(int(reference_tick), int(result["window_end_tick"]))
+            if reference_tick is not None
+            else None
+        )
+
+        timing["evidence_tick"] = evidence_tick
 
         get_constraints = getattr(
             self, "get_player_constraints", None
         )
 
-        if reference_tick is not None and callable(get_constraints):
+        if evidence_tick is not None and callable(get_constraints):
             try:
                 constraints = get_constraints(
                     reference_tick, player
@@ -879,6 +990,33 @@ class MatchLibrary:
             timing["status"] = "insufficient_evidence"
 
         result["support_timing"] = timing
+
+        result["support_geometry"] = {
+            "status": (
+                "not_applicable_actor_dead"
+                if actor_life == "dead"
+                else "not_evaluated"
+            ),
+            "tick": evidence_tick,
+            "scope": "post_match_ground_truth",
+            "support_opportunity": "not_established",
+        }
+
+        get_geometry = getattr(
+            self, "get_support_geometry_at_tick", None
+        )
+
+        if (
+            actor_life == "alive"
+            and evidence_tick is not None
+            and callable(get_geometry)
+        ):
+            result["support_geometry"] = get_geometry(
+                evidence_tick,
+                player,
+                teammate_id,
+                killer_id,
+            )
 
         return result
 

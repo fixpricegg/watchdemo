@@ -429,6 +429,57 @@ class TestPredeathSupport(unittest.TestCase):
             timing["evaluation_status"], "not_evaluated"
         )
 
+    def test_geometry_uses_damage_contact_tick(self):
+        class Integrated(FakeLibrary):
+            get_predeath_support_context = (
+                MatchLibrary.get_predeath_support_context
+            )
+
+            def get_player_constraints(self, tick, player):
+                return {"evidence": {"is_alive": True}}
+
+            def get_support_geometry_at_tick(
+                self, tick, player, teammate_id, killer_id,
+                *, include_static_trace=False
+            ):
+                return {"status": "positions_observed", "tick": tick}
+
+        result = Integrated().get_predeath_support_context(
+            150, "123", "456", "900", lookback_ticks=50
+        )
+
+        self.assertEqual(result["support_geometry"]["tick"], 125)
+
+    def test_geometry_uses_predeath_fallback_tick(self):
+        class Integrated(FakeLibrary):
+            get_predeath_support_context = (
+                MatchLibrary.get_predeath_support_context
+            )
+
+            def get_player_constraints(self, tick, player):
+                return {"evidence": {"is_alive": True}}
+
+            def get_support_geometry_at_tick(
+                self, tick, player, teammate_id, killer_id,
+                *, include_static_trace=False
+            ):
+                return {"status": "positions_observed", "tick": tick}
+
+        library = Integrated()
+        library.events = [
+            e for e in library.events
+            if e["type"] != "player_hurt"
+        ]
+
+        result = library.get_predeath_support_context(
+            150, "123", "456", "900", lookback_ticks=50
+        )
+
+        self.assertEqual(
+            result["support_timing"]["reference_tick"], 150
+        )
+        self.assertEqual(result["support_geometry"]["tick"], 149)
+
 
 
 

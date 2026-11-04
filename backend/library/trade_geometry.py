@@ -140,3 +140,91 @@ def assess_trade_static_collision(
     result["trace"] = trace
 
     return result
+
+
+def assess_support_geometry(
+    match_library,
+    actor_position,
+    teammate_position,
+    killer_position,
+    *,
+    include_static_trace=False,
+):
+    result = {
+        "status": "unknown",
+        "scope": "post_match_ground_truth",
+        "support_opportunity": "not_established",
+        "line_of_sight_verified": False,
+        "distances_2d": None,
+        "vertical_separations": None,
+        "navigation": None,
+        "static_collision": None,
+    }
+
+    positions = (
+        actor_position,
+        teammate_position,
+        killer_position,
+    )
+
+    if not all(_valid_position(p) for p in positions):
+        result["status"] = "invalid_position"
+        return result
+
+    def distance_2d(first, second):
+        return round(sqrt(
+            (float(first["x"]) - float(second["x"])) ** 2
+            + (float(first["y"]) - float(second["y"])) ** 2
+        ), 2)
+
+    def height_difference(first, second):
+        return round(abs(
+            float(first["z"]) - float(second["z"])
+        ), 2)
+
+    result["distances_2d"] = {
+        "actor_to_teammate": distance_2d(
+            actor_position, teammate_position
+        ),
+        "actor_to_killer": distance_2d(
+            actor_position, killer_position
+        ),
+        "teammate_to_killer": distance_2d(
+            teammate_position, killer_position
+        ),
+    }
+
+    result["vertical_separations"] = {
+        "actor_to_killer": height_difference(
+            actor_position, killer_position
+        ),
+        "teammate_to_killer": height_difference(
+            teammate_position, killer_position
+        ),
+    }
+
+    geometry = getattr(match_library, "geometry", None)
+
+    result["navigation"] = {
+        "actor_to_killer": assess_trade_geometry(
+            geometry, actor_position, killer_position
+        ),
+        "teammate_to_killer": assess_trade_geometry(
+            geometry, teammate_position, killer_position
+        ),
+    }
+
+    if include_static_trace:
+        result["static_collision"] = {
+            "actor_to_killer": assess_trade_static_collision(
+                match_library, actor_position, killer_position
+            ),
+            "teammate_to_killer": assess_trade_static_collision(
+                match_library, teammate_position, killer_position
+            ),
+        }
+
+    result["status"] = "positions_observed"
+
+    return result
+
