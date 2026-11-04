@@ -28,16 +28,23 @@ def build_predeath_support(
     round_start_tick,
     death_tick,
     lookback_ticks=128,
+    movement_preroll_ticks=32,
 ):
     if lookback_ticks <= 0:
         raise ValueError("lookback_ticks must be positive")
-
+    if movement_preroll_ticks < 0:
+        raise ValueError("movement_preroll_ticks must be nonnegative")
     player_id = information.normalize_steamid(player_id)
     teammate_id = information.normalize_steamid(teammate_id)
     killer_id = information.normalize_steamid(killer_id)
 
     start = max(int(round_start_tick), int(death_tick) - lookback_ticks)
     end = int(death_tick) - 1
+
+    position_start = max(
+        int(round_start_tick),
+        start - movement_preroll_ticks,
+    )
 
     result = {
         "schema_version": "predeath_support_v1",
@@ -52,6 +59,7 @@ def build_predeath_support(
         "teammate_steamid": teammate_id,
         "killer_steamid": killer_id,
         "position_samples": [],
+        "position_window_start_tick": position_start,
         "distance_change_2d": None,
         "combat": {
             "status": "unavailable",
@@ -171,7 +179,7 @@ def build_predeath_support(
         return result
 
     player_rows = player_stream[
-        (player_stream["tick"] >= start)
+        (player_stream["tick"] >= position_start)
         & (player_stream["tick"] <= end)
     ].sort_values("tick")
 
@@ -267,5 +275,208 @@ def build_predeath_support(
     result["status"] = (
         "sampled_evidence" if samples else "partial_evidence"
     )
+
+    return result
+
+
+def assess_support_timing(
+    context,
+    *,
+    proximity_ticks=32,
+    movement_lookback_ticks=32,
+    max_sample_age_ticks=16,
+):
+    if (
+        proximity_ticks <= 0
+        or movement_lookback_ticks <= 0
+        or max_sample_age_ticks < 0
+    ):
+        raise ValueError("Invalid timing parameters")
+
+    start = int(context["window_start_tick"])
+    end = int(context["window_end_tick"])
+    death_tick = int(context["death_tick"])
+    combat = context["combat"]
+    sources = combat.get("parse_status") or {}
+
+    result = {
+        "status": "insufficient_evidence",
+        "evaluation_status": "not_evaluated",
+        "support_opportunity": "not_established",
+        "reference_tick": None,
+        "reference_source": None,
+        "damage_contact_ticks": [],
+        "activity": {
+            "status": "unknown",
+            "weapon_event_ticks": [],
+            "damage_killer_ticks": [],
+            "nearest_weapon_event_delta_ticks": None,
+            "nearest_damage_delta_ticks": None,
+        },
+        "movement": {
+            "status": "insufficient_aligned_samples",
+            "before_tick": None,
+            "reference_sample_tick": None,
+            "player_displacement_2d": None,
+            "teammate_displacement_2d": None,
+            "separation_change_2d": None,
+        },
+        "limitations": [
+            "Damage contact does not prove a gunfight or peek.",
+            "Weapon events do not establish their intended target.",
+            "Movement alignment does not establish line of sight.",
+            "No missed-support verdict is produced.",
+        ],
+    }
+
+    if end < start or end >= death_tick:
+        return result
+
+    def valid_ticks(field):
+        values = []
+
+        for value in combat.get(field, []):
+            try:
+                tick = int(value)
+            except (TypeError, ValueError, OverflowError):
+                continue
+
+            if start <= tick <= end:
+                values.append(tick)
+
+        return sorted(set(values))
+
+    # Only damage between the teammate and the killer
+    # can establish a pre-death damage-contact reference.
+    contacts = sorted(set(
+        valid_ticks("teammate_hurt_killer_ticks")
+        + valid_ticks("killer_hurt_teammate_ticks")
+    ))
+
+    if contacts:
+        reference = contacts[0]
+        result["reference_source"] = "observed_damage_contact"
+    else:
+        reference = death_tick
+        result["reference_source"] = "death_tick_fallback"
+
+    result["reference_tick"] = reference
+    result["damage_contact_ticks"] = contacts
+
+    left = max(start, reference - proximity_ticks)
+    right = min(end, reference + proximity_ticks)
+
+    def near_reference(values):
+        return [
+            tick for tick in values
+            if left <= tick <= right
+        ]
+
+    weapon_ticks = near_reference(
+        valid_ticks("player_weapon_fire_ticks")
+    )
+    damage_ticks = near_reference(
+        valid_ticks("player_hurt_killer_ticks")
+    )
+
+    def nearest_delta(values):
+        if not values:
+            return None
+
+        closest = min(
+            values,
+            key=lambda tick: (abs(tick - reference), tick),
+        )
+        return closest - reference
+
+    activity = result["activity"]
+    activity["weapon_event_ticks"] = weapon_ticks
+    activity["damage_killer_ticks"] = damage_ticks
+    activity["nearest_weapon_event_delta_ticks"] = (
+        nearest_delta(weapon_ticks)
+    )
+    activity["nearest_damage_delta_ticks"] = (
+        nearest_delta(damage_ticks)
+    )
+
+    if damage_ticks:
+        activity["status"] = "damage_on_killer_observed"
+    elif weapon_ticks:
+        activity["status"] = "weapon_activity_target_unknown"
+    elif sources.get("weapon_fire") == "parsed":
+        activity["status"] = "no_weapon_event_observed"
+    else:
+        activity["status"] = "unknown"
+
+    samples = context.get("position_samples") or []
+
+    def sample_before(target):
+        best = None
+
+        for sample in samples:
+            try:
+                tick = int(sample["tick"])
+                player_tick = int(sample["player_sample_tick"])
+                teammate_tick = int(sample["teammate_sample_tick"])
+            except (KeyError, TypeError, ValueError):
+                continue
+
+            if tick > target:
+                continue
+
+            if not (
+                0 <= target - player_tick <= max_sample_age_ticks
+                and 0 <= target - teammate_tick <= max_sample_age_ticks
+            ):
+                continue
+
+            if player_tick > tick or teammate_tick > tick:
+                continue
+
+            if best is None or tick > best["tick"]:
+                best = sample
+
+        return best
+
+    baseline_tick = reference - movement_lookback_ticks
+
+    before = sample_before(baseline_tick)
+    current = sample_before(reference)
+
+    if before is not None and current is not None:
+        def displacement(key):
+            first = before[key]
+            second = current[key]
+
+            return round(math.hypot(
+                second["x"] - first["x"],
+                second["y"] - first["y"],
+            ), 2)
+
+        movement = result["movement"]
+        movement["status"] = "paired_samples"
+        movement["before_tick"] = int(before["tick"])
+        movement["reference_sample_tick"] = int(
+            current["tick"]
+        )
+        movement["player_displacement_2d"] = displacement(
+            "player_position"
+        )
+        movement["teammate_displacement_2d"] = displacement(
+            "teammate_position"
+        )
+        movement["separation_change_2d"] = round(
+            current["distance_2d"]
+            - before["distance_2d"],
+            2,
+        )
+
+    if (
+        contacts
+        or weapon_ticks
+        or damage_ticks
+        or result["movement"]["status"] == "paired_samples"
+    ):
+        result["status"] = "observations_available"
 
     return result

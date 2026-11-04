@@ -33,7 +33,10 @@ from .visual_contact_history import build_visual_contact_history
 from .candidate_actions import build_candidate_actions
 from .player_constraints import assess_player_constraints
 from .player_effects import build_player_effects
-from .predeath_support import build_predeath_support
+from .predeath_support import (
+    build_predeath_support,
+    assess_support_timing,
+)
 
 
 
@@ -817,7 +820,8 @@ class MatchLibrary:
     ):
         state = self.get_game_state(death_tick, player)
 
-        return build_predeath_support(
+
+        result = build_predeath_support(
             self,
             player_id=state["perspective"]["steamid"],
             teammate_id=teammate_id,
@@ -828,6 +832,57 @@ class MatchLibrary:
             death_tick=death_tick,
             lookback_ticks=lookback_ticks,
         )
+
+        result["schema_version"] = "predeath_support_v2"
+
+
+        timing = assess_support_timing(
+            result,
+            max_sample_age_ticks=self.max_state_age_ticks,
+        )
+
+        actor_life = "unknown"
+        reference_tick = timing["reference_tick"]
+
+        get_constraints = getattr(
+            self, "get_player_constraints", None
+        )
+
+        if reference_tick is not None and callable(get_constraints):
+            try:
+                constraints = get_constraints(
+                    reference_tick, player
+                )
+            except ValueError:
+                constraints = None
+
+            if isinstance(constraints, dict):
+                alive = (
+                    constraints.get("evidence") or {}
+                ).get("is_alive")
+
+                if alive is True:
+                    actor_life = "alive"
+                elif alive is False:
+                    actor_life = "dead"
+
+        timing["actor_life_at_reference"] = actor_life
+
+        if actor_life == "dead":
+            result["status"] = "not_applicable"
+            timing["status"] = "not_applicable"
+            timing["support_opportunity"] = "not_applicable"
+            timing["activity"]["status"] = "not_applicable_actor_dead"
+            timing["movement"]["status"] = "not_applicable_actor_dead"
+
+        elif actor_life == "unknown":
+            timing["status"] = "insufficient_evidence"
+
+        result["support_timing"] = timing
+
+        return result
+
+
 
 
 
