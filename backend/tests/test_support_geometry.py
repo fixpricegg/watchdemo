@@ -158,6 +158,71 @@ class TestSupportGeometry(unittest.TestCase):
             "unknown",
         )
 
+    def test_view_toward_killer(self):
+        self.library.players[0]["view"] = {"yaw": 0}
+        self.library.players[1]["view"] = {"yaw": 90}
+
+        result = self.assess()["geometry"]["view_direction"]
+
+        self.assertEqual(
+            result["actor_to_killer"]["horizontal_yaw_offset_deg"],
+            0,
+        )
+        self.assertEqual(
+            result["teammate_to_killer"]["horizontal_yaw_offset_deg"],
+            90,
+        )
+
+    def test_view_opposite_direction(self):
+        self.library.players[0]["view"] = {"yaw": 180}
+
+        result = self.assess()["geometry"]["view_direction"]
+
+        self.assertEqual(
+            result["actor_to_killer"]["horizontal_yaw_offset_deg"],
+            180,
+        )
+
+    def test_missing_yaw(self):
+        result = self.assess()["geometry"]["view_direction"]
+
+        self.assertEqual(
+            result["actor_to_killer"]["status"], "unknown"
+        )
+
+    def test_yaw_wraparound(self):
+        self.library.players[0]["view"] = {"yaw": 350}
+        self.library.players[2]["position"] = {
+            "x": 100,
+            "y": 17.6327,
+            "z": 0,
+        }
+
+        result = self.assess()["geometry"]["view_direction"]
+
+        self.assertAlmostEqual(
+            result["actor_to_killer"]["horizontal_yaw_offset_deg"],
+            20,
+            places=1,
+        )
+
+    def test_invalid_yaw(self):
+        self.library.players[0]["view"] = {
+            "yaw": float("nan")
+        }
+
+        result = self.assess()["geometry"]
+
+        self.assertEqual(
+            result["view_direction"]["actor_to_killer"]["status"],
+            "unknown",
+        )
+        self.assertFalse(result["line_of_sight_verified"])
+        self.assertEqual(
+            result["support_opportunity"], "not_established"
+        )
+
+
 
 if __name__ == "__main__":
     unittest.main()

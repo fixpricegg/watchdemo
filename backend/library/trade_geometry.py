@@ -4,7 +4,7 @@
 A nav path never proves line of sight or a valid trade.
 """
 
-from math import isfinite, sqrt
+from math import isfinite, sqrt, atan2, degrees, hypot
 
 
 def _valid_position(position):
@@ -141,6 +141,56 @@ def assess_trade_static_collision(
 
     return result
 
+def assess_view_direction(observer_position, target_position, yaw):
+    result = {
+        "status": "unknown",
+        "model": "horizontal_direction_only",
+        "target_bearing_deg": None,
+        "horizontal_yaw_offset_deg": None,
+        "line_of_sight_verified": False,
+    }
+
+    if not (
+        _valid_position(observer_position)
+        and _valid_position(target_position)
+    ):
+        return result
+
+    if isinstance(yaw, bool):
+        return result
+
+    try:
+        yaw = float(yaw)
+    except (TypeError, ValueError, OverflowError):
+        return result
+
+    if not isfinite(yaw):
+        return result
+
+    dx = (
+        float(target_position["x"])
+        - float(observer_position["x"])
+    )
+    dy = (
+        float(target_position["y"])
+        - float(observer_position["y"])
+    )
+
+    if hypot(dx, dy) < 1e-9:
+        result["status"] = "coincident_xy"
+        return result
+
+    bearing = degrees(atan2(dy, dx)) % 360
+    difference = (bearing - yaw + 180) % 360 - 180
+
+    result["status"] = "observed"
+    result["target_bearing_deg"] = round(bearing, 2)
+    result["horizontal_yaw_offset_deg"] = round(
+        abs(difference), 2
+    )
+
+    return result
+
 
 def assess_support_geometry(
     match_library,
@@ -149,6 +199,8 @@ def assess_support_geometry(
     killer_position,
     *,
     include_static_trace=False,
+    actor_yaw=None,
+    teammate_yaw=None,
 ):
     result = {
         "status": "unknown",
@@ -223,6 +275,20 @@ def assess_support_geometry(
                 match_library, teammate_position, killer_position
             ),
         }
+
+    result["view_direction"] = {
+        "actor_to_killer": assess_view_direction(
+            actor_position,
+            killer_position,
+            actor_yaw,
+        ),
+        "teammate_to_killer": assess_view_direction(
+            teammate_position,
+            killer_position,
+            teammate_yaw,
+        ),
+    }
+
 
     result["status"] = "positions_observed"
 

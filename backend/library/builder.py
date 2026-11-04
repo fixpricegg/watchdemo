@@ -904,6 +904,8 @@ class MatchLibrary:
             teammate["position"],
             killer["position"],
             include_static_trace=include_static_trace,
+            actor_yaw=(actor.get("view") or {}).get("yaw"),
+            teammate_yaw=(teammate.get("view") or {}).get("yaw"),
         )
 
         result["geometry"] = geometry
@@ -962,7 +964,7 @@ class MatchLibrary:
         if evidence_tick is not None and callable(get_constraints):
             try:
                 constraints = get_constraints(
-                    reference_tick, player
+                    evidence_tick, player
                 )
             except ValueError:
                 constraints = None

@@ -480,6 +480,30 @@ class TestPredeathSupport(unittest.TestCase):
         )
         self.assertEqual(result["support_geometry"]["tick"], 149)
 
+    def test_fallback_life_uses_predeath_tick(self):
+        class Integrated(FakeLibrary):
+            get_predeath_support_context = (
+                MatchLibrary.get_predeath_support_context
+            )
+
+            def get_player_constraints(self, tick, player):
+                self.checked_tick = tick
+                return {"evidence": {"is_alive": True}}
+
+        library = Integrated()
+        library.events = [
+            event for event in library.events
+            if event["type"] != "player_hurt"
+        ]
+
+        result = library.get_predeath_support_context(
+            150, "123", "456", "900", lookback_ticks=50
+        )
+
+        self.assertEqual(result["support_timing"]["reference_tick"], 150)
+        self.assertEqual(result["support_timing"]["evidence_tick"], 149)
+        self.assertEqual(library.checked_tick, 149)
+
 
 
 
