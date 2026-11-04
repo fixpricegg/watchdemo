@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { fetchJSON } from "../api";
 import MatchReplay from "../components/MatchReplay";
+import { API_URL } from "../api";
 
 export default function SavedReportPage() {
     const { reportId } = useParams();
@@ -28,6 +29,7 @@ export default function SavedReportPage() {
     return (
         <>
             <p><Link to="/reports">Все сохранённые отчёты</Link></p>
+            {report?.status === "completed" && <p><a href={`${API_URL}/reports/${encodeURIComponent(reportId)}/export`}>Скачать отчёт JSON</a></p>}
             {report?.status === "completed" && report.format_version === 1 && report.result
                 ? <MatchReplay key={reportId} analysisResult={report.result} />
                 : <main className="upload-page"><p role={current?.error ? "alert" : "status"}>{message}</p></main>}

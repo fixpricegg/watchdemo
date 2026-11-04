@@ -4,7 +4,7 @@ const { chromium } = require(require('path').resolve(__dirname, '../../.test-too
   try {
     const page = await browser.newPage();
     const errors=[];page.on('pageerror', e=>errors.push(e.message));
-    const base='http://127.0.0.1:5173';
+    const base=process.env.WATCHDEMO_QA_SITE_URL || 'http://127.0.0.1:5173';
     await page.goto(base+'/login');
     await page.getByLabel('Email', {exact:true}).fill('browser@example.com');
     await page.getByLabel('Пароль (12–128 символов)', {exact:true}).fill('Browser-Password-123');
@@ -12,6 +12,12 @@ const { chromium } = require(require('path').resolve(__dirname, '../../.test-too
     await page.waitForURL('**/reports');
     await page.getByRole('link',{name:'Открыть отчёт'}).click();
     await page.getByRole('heading',{name:'Тестовый игрок',exact:true}).waitFor();
+    await page.getByText('ADR 42.5',{exact:true}).waitFor();
+    const downloading=page.waitForEvent('download');
+    await page.getByRole('link',{name:'Скачать отчёт JSON',exact:true}).click();
+    const download=await downloading;
+    const exported=JSON.parse(require('fs').readFileSync(await download.path(),'utf8'));
+    if(exported.report.summary.adr!==42.5) throw new Error('Downloaded ADR mismatch');
     const reportURL=page.url();
     await page.reload();
     await page.getByRole('heading',{name:'Тестовый игрок',exact:true}).waitFor();
@@ -36,6 +42,6 @@ const { chromium } = require(require('path').resolve(__dirname, '../../.test-too
     await page.goto(reportURL);
     await page.getByRole('alert').filter({hasText:'Отчёт не найден'}).waitFor();
     if(errors.length) throw new Error(errors.join('\n'));
-    console.log('BROWSER_OK: login, saved report, reload, profile, logout, registration, B ownership denial; no page errors');
+    console.log('BROWSER_OK: login, ADR, JSON download, saved report reload, profile, logout, registration, B ownership denial; no page errors');
   } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

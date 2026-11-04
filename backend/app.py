@@ -15,6 +15,7 @@ from analyzer_service import analyze_demo
 from storage.repository import Repository, json_snapshot
 from auth import router as auth_router, csrf, current_user
 from fastapi.exceptions import RequestValidationError
+from report_export import export_report
 
 
 logger = logging.getLogger(__name__)
@@ -191,6 +192,18 @@ def create_app(*, repository=None, upload_dir=None):
         if report is None:
             raise HTTPException(404, "Отчёт не найден")
         return report
+
+    @application.get("/reports/{report_id}/export")
+    def download_report(report_id: UUID, request: Request, user=Depends(current_user)):
+        report = request.app.state.repository.get_report(report_id, user["user_id"])
+        if report is None:
+            raise HTTPException(404, "Отчёт не найден")
+        if report["status"] != "completed":
+            raise HTTPException(409, "Экспорт доступен после успешного завершения анализа")
+        return JSONResponse(export_report(report), headers={
+            "Content-Disposition": f'attachment; filename="watchdemo-{report_id}.json"',
+            "X-Content-Type-Options": "nosniff",
+        })
 
     return application
 

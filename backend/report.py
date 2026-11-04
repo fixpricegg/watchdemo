@@ -261,4 +261,6 @@ def generate_report(player, stats):
         lines.append("- Среднее время первой смерти: нет данных")
     lines.append("")
 
+    lines.insert(0, "> Статистические сигналы требуют проверки; это не подтверждённые игровые ошибки.\n")
+    lines.append(f"ADR: {stats.get('adr') if stats.get('adr') is not None else 'нет данных'}")
     return "\n".join(lines)

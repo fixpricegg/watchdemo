@@ -29,6 +29,7 @@ try:
     response = case.client.post('/demo/analyze', json={'match_id': uploaded['match_id'], 'steamid': player['steamid']})
     assert response.status_code == 200, response.text
     analyzed = response.json()
+    print('ADR_EVIDENCE', json.dumps(analyzed['result']['report']['adr_details'], ensure_ascii=False), flush=True)
     (case.directory / uploaded['filename']).unlink()
     with TestClient(create_app(repository=case.repo, upload_dir=case.directory)) as fresh:
         authenticate(fresh)
@@ -64,7 +65,10 @@ try:
                 reopened = http.get('/reports/' + analyzed['report_id'])
                 assert reopened.status_code == 200, reopened.text
                 assert reopened.json()['result'] == analyzed['result']
-                print('REAL_PROCESS_REOPEN_OK', run + 1, flush=True)
+                exported = http.get('/reports/' + analyzed['report_id'] + '/export')
+                assert exported.status_code == 200, exported.text
+                assert exported.json()['report']['summary'] == analyzed['result']['report']['summary']
+                print('REAL_PROCESS_REOPEN_EXPORT_OK', run + 1, flush=True)
         finally:
             process.terminate()
             process.wait(timeout=15)

@@ -1,5 +1,8 @@
 # Аккаунты и PostgreSQL — ИВР, 2 ноября 2026
 
+Актуальный аудит всех 13 требований от 4 ноября (ADR и JSON-экспорт включены):
+[ivr-technical-audit.md](ivr-technical-audit.md). Таблица ниже сохраняет состояние этапа аккаунтов.
+
 Работа продолжает `c92d318` в `feature/postgres-match-storage`. Основной checkout,
 детекторы, Match Library, Geometry Layer, Decision Context и анализатор не меняются.
 Изменения предназначены для ревью; merge/push не выполняются.
