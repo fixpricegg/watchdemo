@@ -33,6 +33,7 @@ from .visual_contact_history import build_visual_contact_history
 from .candidate_actions import build_candidate_actions
 from .player_constraints import assess_player_constraints
 from .player_effects import build_player_effects
+from .predeath_support import build_predeath_support
 
 
 
@@ -803,6 +804,30 @@ class MatchLibrary:
             "parse_status": sources,
             "events": events,
         }
+
+
+    def get_predeath_support_context(
+        self,
+        death_tick,
+        player,
+        teammate_id,
+        killer_id,
+        *,
+        lookback_ticks=128,
+    ):
+        state = self.get_game_state(death_tick, player)
+
+        return build_predeath_support(
+            self,
+            player_id=state["perspective"]["steamid"],
+            teammate_id=teammate_id,
+            killer_id=killer_id,
+            observer_team=state["perspective"]["team"],
+            round_number=state["round"]["number"],
+            round_start_tick=state["round"]["live_start_tick"],
+            death_tick=death_tick,
+            lookback_ticks=lookback_ticks,
+        )
 
 
 
