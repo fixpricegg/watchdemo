@@ -1,0 +1,26 @@
+.review-section { width: min(900px, 100%); margin: 1.5rem auto; text-align: left; }
+.review-filters { display: flex; flex-wrap: wrap; gap: .6rem; margin: 1rem 0; }
+.review-filters button, .review-card button { padding: .65rem 1rem; border: 1px solid #7a8798; border-radius: .5rem; background: #202b3d; color: #fff; cursor: pointer; font: inherit; }
+.review-filters button[aria-pressed="true"] { background: #315b91; border-color: #9cc8ff; }
+.review-list { display: grid; gap: 1rem; }
+.review-card { background: #141e2c; color: #e6edf6; border: 1px solid #435167; border-radius: .8rem; padding: 1.2rem; }
+.review-card h3 { margin-top: 0; }
+.review-card li, .review-card p { line-height: 1.5; overflow-wrap: anywhere; }
+.review-card details { margin: 1rem 0; }
+.review-card summary { cursor: pointer; }
+.review-card button:disabled { opacity: .5; cursor: default; }
+.review-selected { border-color: #9cc8ff; }
+.replay-selection { padding: .7rem 1rem; background: #22334e; border-radius: .5rem; color: #fff; }
+
+/* Keep the full-resolution tactical map pannable inside its own section. */
+.match-section { min-width: 0; }
+.radar-section { max-width: 100%; overflow-x: auto; }
+.round-info { flex-wrap: wrap; }
+@media (max-width: 600px) {
+    .summary-grid { grid-template-columns: 1fr; }
+    .problem-top { flex-wrap: wrap; }
+    .review-card button { max-width: 100%; white-space: normal; }
+}
+
+.problems-header h3 { color: var(--text-h); }
+.problems-header p { color: var(--text); }

@@ -1,5 +1,6 @@
 
 import math
+from information import normalize_steamid
 
 
 def number(value):
@@ -25,10 +26,15 @@ def detect_buy_mismatch(library, player):
 
         player_id = state["perspective"]["steamid"]
         team = state["perspective"]["team"]
+        if team not in (2, 3):
+            continue
 
         teammates = [
             p for p in state["ground_truth"]["players"]
             if p.get("team") == team
+            and p.get("sample_tick") == start
+            and p.get("status", {}).get("is_alive") is True
+            and normalize_steamid(p.get("steamid")) is not None
         ]
 
         actor = next(
@@ -36,7 +42,8 @@ def detect_buy_mismatch(library, player):
             None,
         )
 
-        if actor is None or len(teammates) < 4:
+        if (actor is None or len(teammates) < 4
+                or len({p["steamid"] for p in teammates}) != len(teammates)):
             continue
 
         actor_economy = actor.get("economy") or {}
@@ -81,6 +88,15 @@ def detect_buy_mismatch(library, player):
 
         findings.append({
             "type": "buy_mismatch_candidate",
+            "detector_version": 1,
+            "sample_tick": int(start),
+            "evidence_scope": "round_live_start_snapshot",
+            "limitations": [
+                "Пороги: минимум 3 союзника от $3000; игрок до $1200 и остаток от $3000.",
+                "Стоимость снаряжения не равна сумме потраченных денег.",
+                "Неизвестны план команды, договорённости о дропе и намеренное сохранение денег.",
+                "Снимок первого live-тика не моделирует все покупки после начала раунда.",
+            ],
             "status": "review_required",
             "round": int(round_number),
             "tick": int(start),

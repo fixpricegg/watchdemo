@@ -2,6 +2,7 @@
 import math
 
 import information
+from detectors.entry_death import round_observation_end
 import pandas as pd
 
 from library.trade_geometry import (
@@ -106,7 +107,7 @@ def get_possible_missed_trades(
             continue
 
         round_start = int(round_info["live_start_tick"])
-        round_end = int(round_info["end_tick"])
+        round_end = round_observation_end(match_library, death_round, int(round_info["end_tick"]))
 
         if not round_start <= death_tick < round_end:
             continue
@@ -195,7 +196,7 @@ def get_possible_missed_trades(
         # within the trade window, by anyone.
         killer_deaths = deaths[
             (deaths["round"] == death_round)
-            & (deaths["tick"] > death_tick)
+            & (deaths["tick"] >= death_tick)
             & (deaths["tick"] <= death_tick + trade_window_ticks)
         ]
 
@@ -260,6 +261,7 @@ def get_possible_missed_trades(
 
         candidate = {
             "type": "trade_review_candidate",
+            "detector_version": 2,
             "status": "review_required",
             "evaluation_status": "not_evaluated",
             "round": death_round,

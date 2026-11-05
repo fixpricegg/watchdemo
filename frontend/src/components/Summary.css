@@ -74,12 +74,12 @@
 
 .problems-header h3 {
     margin: 0 0 4px;
-    color: #f3f6fb;
+    color: var(--text-h);
     font-size: 24px;
 }
 
 .problems-header p {
-    color: #9ca9bd;
+    color: var(--text);
 }
 
 .problem-list {

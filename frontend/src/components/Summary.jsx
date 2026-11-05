@@ -65,23 +65,23 @@ function Summary({ report }) {
 
             <div className="problems-block">
                 <div className="problems-header">
-                    <h3>Top Problems</h3>
-                    <p>Статистические сигналы для проверки на радаре. Это не подтверждённые игровые ошибки.</p>
+                    <h3>Приоритеты разбора</h3>
+                    <p>Эпизоды для ручной проверки на радаре. Это не подтверждённые игровые ошибки.</p>
                 </div>
 
                 {problems.length === 0 ? (
                     <div className="problem-card">
-                        <strong>Статистических сигналов не найдено</strong>
+                        <strong>Эпизодов для разбора не найдено</strong>
                         <p>Это не означает отсутствие игровых ошибок.</p>
                     </div>
                 ) : (
                     <div className="problem-list">
                         {problems.map((problem, index) => (
-                            <div className="problem-card" key={problem.name}>
+                            <div className="problem-card" key={problem.type ?? problem.name}>
                                 <div className="problem-top">
                                     <span>#{index + 1}</span>
                                     <strong>{problem.name}</strong>
-                                    <em>Score {problem.score}</em>
+                                    <em>Приоритет {problem.score}</em>
                                 </div>
 
                                 <p>{problem.description}</p>

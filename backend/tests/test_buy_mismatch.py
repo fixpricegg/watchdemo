@@ -20,6 +20,8 @@ class FakeLibrary:
             players.append({
                 "steamid": str(123 + i),
                 "team": 3,
+                "sample_tick": 100,
+                "status": {"is_alive": True},
                 "economy": {
                     "current_equip_value": value,
                     "balance": self.balance if i == 0 else 500,

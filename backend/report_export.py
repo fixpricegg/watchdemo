@@ -17,5 +17,26 @@ def export_report(row):
             "report": {"player": report.get("player"), "map": report.get("map"),
                        "summary": {key: summary[key] for key in SUMMARY_FIELDS if key in summary
                                    and (summary[key] is None or type(summary[key]) in (int, float))},
-                       "top_problems": problems},
-            "notice": "Top Problems — статистические сигналы, не подтверждённые игровые ошибки."}
+                       "top_problems": problems,
+                       "review_findings": public_findings(report.get("review_findings", []))},
+            "notice": "Приоритеты и эпизоды требуют ручной проверки; подтверждённые игровые ошибки не установлены."}
+
+
+def public_findings(findings):
+    """Compact evidence projection; internal detector context is never exported."""
+    if not isinstance(findings, list):
+        return []
+    result = []
+    for finding in findings:
+        if not isinstance(finding, dict):
+            continue
+        value = {key: finding[key] for key in (
+            "id", "type", "detector", "title", "description", "status", "verdict"
+        ) if isinstance(finding.get(key), str)}
+        value.update({key: finding[key] for key in ("round", "tick", "review_priority")
+                      if type(finding.get(key)) is int})
+        for key in ("facts", "limitations"):
+            items = finding.get(key, [])
+            value[key] = [item for item in items if isinstance(item, str)] if isinstance(items, list) else []
+        result.append(value)
+    return result

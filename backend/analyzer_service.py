@@ -21,6 +21,8 @@ import episode_context
 from library import MatchLibrary
 import pandas as pd
 from detectors.buy_mismatch import detect_buy_mismatch
+from detectors.entry_death import detect_entry_deaths, enemy_deaths
+from review_findings import build_review_findings, prioritize_reviews
 
 
 TICKRATE = 64
@@ -397,7 +399,7 @@ def analyze_demo(demo_path, player):
     demo_end_tick = None
 
     if (
-        "tick_df" in globals()
+        "tick_df" in locals()
         and isinstance(tick_df, pd.DataFrame)
         and not tick_df.empty
         and "tick" in tick_df.columns
@@ -968,9 +970,6 @@ def analyze_demo(demo_path, player):
 
     if geometry is not None:
 
-        geometry = map_geometry.MapGeometry(
-            "maps/de_nuke_nav.json"
-        )
 
         # =========================
         # 4.1.0.1 Candidate moments
@@ -1162,10 +1161,10 @@ def analyze_demo(demo_path, player):
         lifecycle_deaths,
         match_library,
     )
-    buy_candidates = detect_buy_mismatch(
-        match_library,
-        player,
-    )
+    buy_candidates = detect_buy_mismatch(match_library, player)
+    entry_candidates = detect_entry_deaths(match_library, player, lifecycle_deaths)
+    review_findings = build_review_findings(entry_candidates, trade_review_candidates, buy_candidates)
+    combat_deaths = enemy_deaths(lifecycle_deaths, match_library)
 
 
 
@@ -1237,102 +1236,14 @@ def analyze_demo(demo_path, player):
     # 5.2 Missed trades
     # =========================
 
-    # Candidate for review, not a confirmed mistake.
-    for candidate in trade_review_candidates:
-        events.append(
-            create_event(
-                event_type="trade_review_candidate",
-                category="neutral",
-                round_number=candidate["round"],
-                tick=candidate["tick"],
-                importance=1,
-                title="Trade Opportunity — Review",
-                description=(
-                    f"После смерти {candidate['dead_teammate']} "
-                    f"обнаружена ситуация для проверки размена. "
-                    f"Навигационный путь найден, но возможность "
-                    f"выстрела по {candidate['killer']} "
-                    f"не подтверждена."
-                ),
-                data=candidate,
-            )
-        )
-
-    # =========================
-    # 5.2.1 Buy Mismatch
-    # =========================
-
-    for candidate in buy_candidates:
-        events.append(
-            create_event(
-                event_type="buy_mismatch_candidate",
-                category="neutral",
-                round_number=candidate["round"],
-                tick=candidate["tick"],
-                importance=1,
-                title="Buy Mismatch — Review",
-                description=(
-                    "Возможная несогласованная закупка: "
-                    f"{candidate['equipped_teammates']} союзника "
-                    "закупились, но игрок сохранил деньги "
-                    "при слабом снаряжении. "
-                    "Требуется проверка решения."
-                ),
-                data=candidate,
-            )
-        )
-
-    print("\n=== BUY MISMATCH VALIDATION ===")
-    print("Candidates:", len(buy_candidates))
-
-    print("\n=== BUY ECONOMY DIAGNOSTICS ===")
-
-    for round_number, _, start, end in match_library.round_intervals:
-        try:
-            state = match_library.get_game_state(start, player)
-        except ValueError:
-            print("Round", round_number, "NO STATE")
-            continue
-
-        player_id = state["perspective"]["steamid"]
-        team = state["perspective"]["team"]
-
-        teammates = [
-            p for p in state["ground_truth"]["players"]
-            if p.get("team") == team
-        ]
-
-        actor = next(
-            (p for p in teammates if p["steamid"] == player_id),
-            None,
-        )
-
-        if actor is None:
-            continue
-
-        economy = actor.get("economy") or {}
-
-        teammate_values = [
-            (p.get("economy") or {}).get("current_equip_value")
-            for p in teammates
-            if p["steamid"] != player_id
-        ]
-
-        print(
-            "Round:", round_number,
-            "| Equipment:", economy.get("current_equip_value"),
-            "| Balance:", economy.get("balance"),
-            "| Team equipment:", teammate_values,
-        )
-
-    for candidate in buy_candidates:
-        print(
-            "Round:", candidate["round"],
-            "Tick:", candidate["tick"],
-            "Equipment:", candidate["player_equipment_value"],
-            "Balance:", candidate["remaining_balance"],
-            "Equipped teammates:", candidate["equipped_teammates"],
-        )
+    # All detector observations remain neutral review candidates.
+    for finding in review_findings:
+        events.append(create_event(
+            event_type=finding["type"], category="neutral",
+            round_number=finding["round"], tick=finding["tick"],
+            importance=finding["review_priority"], title=finding["title"],
+            description=finding["description"], data=finding,
+        ))
 
     # =========================
     # 5.3 Trade kills
@@ -1416,9 +1327,10 @@ def analyze_demo(demo_path, player):
     first_death_times = []
 
     for match_round, demo_round, live_start_tick, live_end_tick in round_intervals:
-        round_kills = deaths_clean[
-            (deaths_clean["tick"] >= live_start_tick) &
-            (deaths_clean["tick"] < live_end_tick)
+        round_kills = combat_deaths[
+            (combat_deaths["round"] == match_round) &
+            (combat_deaths["tick"] >= live_start_tick) &
+            (combat_deaths["tick"] < live_end_tick)
         ]
 
         if round_kills.empty:
@@ -1439,31 +1351,6 @@ def analyze_demo(demo_path, player):
         if first_kill["user_name"] == player:
             entry_deaths += 1
             first_death_times.append(game_ticks_to_first_event)
-
-            event_type = "early_death"
-            importance = 2
-
-            if game_ticks_to_first_event < 1600:
-                event_type = "failed_entry"
-                importance = 3
-
-            events.append(
-                create_event(
-                    event_type=event_type,
-                    category="negative",
-                    round_number=match_round,
-                    tick=first_kill["tick"],
-                    time=format_time_left(game_ticks_to_first_event),
-                    importance=importance,
-                    title="Провальный entry" if event_type == "failed_entry" else "Ранняя смерть",
-                    description="Ты умер первым в раунде и оставил команду в меньшинстве.",
-                    data={
-                        "killer": first_kill["attacker_name"],
-                        "victim": first_kill["user_name"],
-                        "demo_round": int(demo_round),
-                    }
-                )
-            )
 
     # =========================
     # 6. Averages
@@ -1561,8 +1448,12 @@ def analyze_demo(demo_path, player):
         },
     ]
 
-    top_problems = sorted(problems, key=lambda x: x["score"], reverse=True)
-    top_problems = [p for p in top_problems if p["score"] >= 2][:3]
+    statistical_signals = sorted(problems, key=lambda x: x["score"], reverse=True)
+    statistical_signals = [p for p in statistical_signals if p["score"] >= 2][:3]
+    for signal in statistical_signals:
+        signal["status"] = "statistical_signal"
+        signal["description"] = "Статистический сигнал: " + signal["name"] + ". Сам по себе не доказывает игровую ошибку."
+    top_problems = prioritize_reviews(review_findings)
 
     # ADR uses event-time sides and exact pre-hit health; no library/detector changes.
     try:
@@ -1599,6 +1490,7 @@ def analyze_demo(demo_path, player):
         "avg_time_first_kill": avg_time_first_kill,
         "avg_time_first_death": avg_time_first_death,
         "top_problems": top_problems,
+        "review_findings": review_findings,
         "events": events,
     }
 
@@ -1627,6 +1519,10 @@ def analyze_demo(demo_path, player):
             "ace": int(ace),
         },
         "top_problems": top_problems,
+        "review_findings": review_findings,
+        "statistical_signals": statistical_signals,
+        "entry_death_candidates": entry_candidates,
+        "missed_trade_candidates": trade_review_candidates,
         "buy_mismatch_candidates": buy_candidates,
     }
 

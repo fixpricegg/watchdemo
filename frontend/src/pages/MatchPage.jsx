@@ -1,4 +1,6 @@
+import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import ReviewFindings from "../components/ReviewFindings";
 
 import Summary from "../components/Summary";
 import Radar from "../components/Radar";
@@ -13,6 +15,14 @@ function MatchPage({
     isPlaying,
     setIsPlaying,
 }) {
+    const replaySection = useRef(null);
+    const [selected, setSelected] = useState(null);
+    function seekEpisode(finding, frame) {
+        setIsPlaying(false);
+        setTickIndex(frame);
+        setSelected(finding);
+        replaySection.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
     if (!analysisResult || !radarData) {
         return (
             <main className="upload-page">
@@ -49,29 +59,11 @@ function MatchPage({
                 </div>
 
                 <Summary report={analysisResult.report} />
+                <ReviewFindings report={analysisResult.report} radarData={radarData} onSeek={seekEpisode} selectedId={selected?.id} />
             </section>
 
 
-            <section className="match-section">
-                <div className="match-section-header">
-                    <p className="upload-eyebrow">
-                        PLAYERS
-                    </p>
-
-                    <h2>Match statistics</h2>
-
-                    <p>
-                        Full statistics for all players will appear here.
-                    </p>
-                </div>
-
-                <div className="match-placeholder">
-                    Player scoreboard
-                </div>
-            </section>
-
-
-            <section className="match-section">
+            <section className="match-section" ref={replaySection}>
                 <div className="match-section-header">
                     <p className="upload-eyebrow">
                         REPLAY
@@ -80,6 +72,10 @@ function MatchPage({
                     <h2>Match replay</h2>
                 </div>
 
+                {selected && <p className="replay-selection" role="status">
+                    Выбран эпизод: {selected.detector} · Раунд {selected.round} · Тик {selected.tick}.
+                    Кадр радара: {radarData.bomb?.states?.[tickIndex]?.tick ?? "нет данных"}.
+                </p>}
                 <Radar
                     tickIndex={tickIndex}
                     radarData={radarData}
@@ -95,23 +91,7 @@ function MatchPage({
             </section>
 
 
-            <section className="match-section analysis-placeholder">
-                <div className="match-section-header">
-                    <p className="upload-eyebrow">
-                        ANALYSIS
-                    </p>
 
-                    <h2>Key situations</h2>
-
-                    <p>
-                        Important moments from your match will appear here.
-                    </p>
-                </div>
-
-                <div className="match-placeholder">
-                    Visual match analysis
-                </div>
-            </section>
 
         </main>
     );
