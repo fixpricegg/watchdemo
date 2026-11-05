@@ -868,7 +868,8 @@ def analyze_demo(demo_path, player):
 
         if collision_path:
             collision_geometry = GeometryLayer.from_gltf(
-                collision_path
+                collision_path,
+                coordinate_space="source2_raw",
             )
 
 
