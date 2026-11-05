@@ -1,142 +1,66 @@
 # WatchDemo
 
-WatchDemo is a web application for analyzing Counter-Strike 2 demo files. It turns a `.dem` file into an interactive browser report with match statistics, player movement, timeline events, and evidence-linked coaching feedback.
+**WatchDemo** — веб-сервис для разбора демозаписей Counter-Strike 2. Он принимает файл `.dem`, извлекает события матча, показывает статистику, таймлайн и интерактивный 2D-радар, а также помогает находить игровые эпизоды для самостоятельного анализа.
 
-> **Status:** active development, early MVP. The parser, first analysis rules, report generation, interactive radar, Timeline, score tracking, and event navigation are working. The product is not ready for public release yet.
+## Где находится версия для итоговой ИВР (ноябрь 2026)
 
-## Product goal
+**Код интеграционной версии находится в ветке [`feature/game-library`](https://github.com/fixpricegg/watchdemo/tree/feature/game-library).** Ветка `main` содержит более раннее состояние проекта; при проверке итоговой работы **не используйте `main` как финальную сборку**.
 
-```text
-Upload a CS2 demo
-        ↓
-Parse the match
-        ↓
-Open a browser report
-        ↓
-Inspect statistics, mistakes, and the exact replay moment
+Материалы интеграционной версии:
+- [Исходный код финальной интеграционной ветки](https://github.com/fixpricegg/watchdemo/tree/feature/game-library)
+- [Итоговый отчёт ИВР (.docx)](https://github.com/fixpricegg/watchdemo/blob/feature/game-library/docs/WatchDemo_Final_Report_IVR.docx)
+- [Инструкция запуска](https://github.com/fixpricegg/watchdemo/blob/feature/game-library/docs/ivr-runbook.md)
+- [Проверки и оставшиеся ограничения](https://github.com/fixpricegg/watchdemo/blob/feature/game-library/docs/ivr-integration-verification.md)
+- [Папка демонстрационных материалов](https://drive.google.com/drive/folders/1TfTVa33cGFJFxxLesWFQdYQPqDo6Qadx?usp=drive_link) (наличие записи и доступ по ссылке проверяются отдельно).
+
+## Что реализовано в интеграционной ветке
+
+- Загрузка и валидация файлов `.dem`, получение игровых событий и статистики (в том числе K/D, ADR, первые убийства и смерти).
+- Выбор игрока, отчёт, временная шкала, 2D-радар и переход к эпизодам матча.
+- Аккаунты и сохранение результатов в PostgreSQL с повторным открытием и экспортом JSON.
+- Три типа эпизодов для проверки: **Entry Death**, **Missed Trade v2**, **Buy Mismatch**.
+- Контекстный анализ с учётом доступных данных; геометрические проверки на Nuke имеют экспериментальные ограничения.
+
+**Важно:** детекторы находят *кандидатов для разбора*, а не доказывают, что решение игрока было ошибочным. Отсутствие найденных эпизодов не означает отсутствие ошибок. Реальные письма восстановления пароля требуют SMTP. Сервис не заявлен как готовая публичная коммерческая версия.
+
+## Локальный запуск на Windows (PowerShell)
+
+Нужны **Python**, **Node.js/npm**, **PostgreSQL** и Git. Для извлечения некоторых данных о C4 может понадобиться отдельная сборка компонента на Go. Полная инструкция: [docs/ivr-runbook.md](https://github.com/fixpricegg/watchdemo/blob/feature/game-library/docs/ivr-runbook.md).
+
+```powershell
+git clone --branch feature/game-library --single-branch https://github.com/fixpricegg/watchdemo.git
+cd watchdemo
+
+cd backend
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-WatchDemo is intended for competitive players who want to improve but do not want to manually review every round or pay for a personal coach.
+Создайте в PostgreSQL отдельную базу и пользователя с правами на создание схемы. Вместо `USER`, `PASSWORD` и `DATABASE` укажите ваши значения:
 
-## Current functionality
-
-### Demo parsing
-
-- Round and match-start detection
-- Kill and death extraction
-- Invalid world-death filtering
-- Pause-aware timing
-- Player positions by tick
-- Dynamic CT/T side detection
-- Round-end winner detection
-- Match score tracking across side switches and overtime
-
-### Player analysis
-
-- Kills, deaths, and K/D
-- Headshot percentage
-- Entry kills and entry deaths
-- Entry success rate
-- Average opening-kill and first-death timing
-- Multi-kill rounds
-- Trade kills
-- Possible missed-trade events
-- Rule-based Top Problems
-
-### Interactive report
-
-- React radar playback
-- Alive/dead player states
-- CT/T colors that update after side switches
-- Timeline with round segments
-- Buy and Live phases
-- Round timer
-- Current score
-- Event markers
-- Click-to-jump from an event to the closest replay tick
-
-## Current focus
-
-The current development phase is **Radar v1** on Inferno.
-
-Next priorities:
-
-1. Bomb carrier, dropped bomb, planted bomb, defuse, and explosion states
-2. Grenade events and trajectories
-3. Better round navigation and player focus
-4. Complete raw user flow from upload to report
-5. Multi-map support
-6. Analysis-quality testing with real demos
-
-See [ROADMAP.md](ROADMAP.md) for the full plan and [WORKFLOW.md](WORKFLOW.md) for the development process.
-
-## Architecture
-
-```text
-CS2 demo (.dem)
-        ↓
-Python + demoparser2
-        ↓
-Deterministic match analysis
-        ↓
-radar.json + report.json
-        ↓
-React report, Radar, and Timeline
+```powershell
+$env:WATCHDEMO_DATABASE_URL = 'postgresql://USER:PASSWORD@127.0.0.1:5432/DATABASE'
+$env:WATCHDEMO_COOKIE_SECURE = 'false' # Только для локального HTTP
+.\.venv\Scripts\python.exe manage_storage.py migrate
+.\.venv\Scripts\python.exe manage_storage.py check
+.\.venv\Scripts\python.exe -m uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
-The deterministic backend is the source of truth. A future AI layer will explain verified signals, compare matches, and personalize recommendations rather than invent match events.
+Откройте **новое окно PowerShell** в папке `watchdemo/frontend`:
 
-## Tech stack
-
-| Area | Technology |
-| --- | --- |
-| Demo parsing | Python, demoparser2, pandas |
-| Backend | FastAPI, Uvicorn |
-| Frontend | React, Vite |
-| Data exchange | JSON |
-
-## Planned repository structure
-
-```text
-watchdemo/
-├── backend/
-│   ├── app/
-│   ├── analyzer/
-│   ├── tests/
-│   └── requirements.txt
-├── frontend/
-│   ├── src/
-│   └── package.json
-├── README.md
-├── ROADMAP.md
-├── WORKFLOW.md
-└── .gitignore
+```powershell
+npm ci
+npm run dev
 ```
 
-The current local source will be added after the working version is reviewed and sensitive or generated files are excluded.
+Откройте **http://localhost:5173**, зарегистрируйтесь, войдите в аккаунт, загрузите демозапись CS2, выберите игрока и откройте отчёт. PostgreSQL должен работать до запуска backend.
 
-## Current limitations
+Файл `backend/.env.example` перечисляет конфигурационные переменные, но **не загружается автоматически**. Не публикуйте реальные пароли. Для проверки геометрии, C4, SMTP и тестов используйте подробный runbook.
 
-- Inferno is the only configured radar map
-- Radar JSON is large and not yet optimized
-- Some analysis rules are still coarse heuristics
-- Missed-trade detection does not yet understand walls, vision, flashes, reloads, or team intent
-- No complete upload-to-report flow is deployed
-- No user accounts or FACEIT integration
-- No automated regression suite yet
+## Проверки
 
-## Testing strategy
+Документ [о проверке интеграционной версии](https://github.com/fixpricegg/watchdemo/blob/feature/game-library/docs/ivr-integration-verification.md) фиксирует проведённые разработчиком проверки, в том числе **376 backend-тестов**, сборку React и ESLint, а также тестирование на настоящей демозаписи Nuke. Это отчёт о конкретной проверенной сборке, а не гарантия корректности любой будущей версии. Сначала создайте **отдельную тестовую базу**, затем выполняйте тесты по runbook.
 
-Before public release, the first complete version will be tested with 5–10 external players. The important signals are:
+## Дальнейшее развитие
 
-- successful demo-processing rate;
-- correctness of replay state;
-- false-positive rate for detected mistakes;
-- whether users open evidence moments;
-- whether users return to analyze another match.
-
-## Product rule
-
-Do not perfect isolated features before the complete product path works.
-
-Build the first useful WatchDemo, test it, then improve it.
+Улучшение надёжности контекстного анализа и уменьшение ложных срабатываний, расширение поддержки карт, настройка публичного развёртывания и проверка востребованности на реальных пользователях.
