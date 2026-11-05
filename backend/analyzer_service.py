@@ -1,4 +1,5 @@
 from demoparser2 import DemoParser
+from adr import calculate_adr
 from detectors.missed_trade import get_possible_missed_trades
 from report import generate_report
 import radar
@@ -1483,10 +1484,25 @@ def analyze_demo(demo_path, player):
     top_problems = sorted(problems, key=lambda x: x["score"], reverse=True)
     top_problems = [p for p in top_problems if p["score"] >= 2][:3]
 
+    # ADR uses event-time sides and exact pre-hit health; no library/detector changes.
+    try:
+        adr_hurts = parser.parse_event("player_hurt", player=["team_num"])
+        adr_pre_health = parser.parse_ticks(
+            ["health"], ticks=sorted({max(0, int(t) - 1) for t in adr_hurts["tick"].dropna()})
+        ) if not adr_hurts.empty else None
+    except Exception:
+        adr_hurts, adr_pre_health = None, None
+    adr_data = calculate_adr(
+        adr_hurts, timeline_rounds, round_ends, position_df, adr_pre_health,
+        selected_players.iloc[0]["steamid"] if len(selected_players) == 1 else None,
+    )
+
     # =========================
     # 8. Stats for report.py
     # =========================
     stats = {
+        "adr": adr_data["value"],
+        "adr_details": adr_data,
         "kd": kd,
         "kills": kills_count,
         "two_k": two_k,
@@ -1513,7 +1529,9 @@ def analyze_demo(demo_path, player):
         "player": player,
         "player_economy_history": player_economy_history,
         "map": map_name,
+        "adr_details": adr_data,
         "summary": {
+            "adr": adr_data["value"],
             "kills": int(kills_count),
             "deaths": int(deaths_count),
             "kd": round(float(kd), 2),

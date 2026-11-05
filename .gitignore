@@ -82,3 +82,7 @@ __pycache__/
 
 # Local test artifacts
 .pytest_cache/
+.test-tools/
+review-accounts/
+review-upload-limit/
+review-ivr/

@@ -39,6 +39,15 @@ function Header() {
                         Analyze
                     </NavLink>
 
+                    <NavLink
+                        to="/reports"
+                        className={({ isActive }) =>
+                            isActive ? "site-nav-link active" : "site-nav-link"
+                        }
+                    >
+                        Reports
+                    </NavLink>
+
                 </nav>
 
             </div>

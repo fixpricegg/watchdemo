@@ -30,6 +30,8 @@ function Summary({ report }) {
                     <span>Combat</span>
                     <strong>{summary.kills} / {summary.deaths}</strong>
                     <p>K/D {summary.kd}</p>
+                    <p>ADR {summary.adr ?? "N/A"}</p>
+                    {report.adr_details?.reason && <p>{report.adr_details.reason}</p>}
                 </div>
 
                 <div className="summary-card">
@@ -64,13 +66,13 @@ function Summary({ report }) {
             <div className="problems-block">
                 <div className="problems-header">
                     <h3>Top Problems</h3>
-                    <p>Главные вещи, которые сильнее всего повлияли на матч.</p>
+                    <p>Статистические сигналы для проверки на радаре. Это не подтверждённые игровые ошибки.</p>
                 </div>
 
                 {problems.length === 0 ? (
                     <div className="problem-card">
-                        <strong>Критичных проблем не найдено</strong>
-                        <p>По текущим правилам матч выглядит достаточно стабильным.</p>
+                        <strong>Статистических сигналов не найдено</strong>
+                        <p>Это не означает отсутствие игровых ошибок.</p>
                     </div>
                 ) : (
                     <div className="problem-list">
