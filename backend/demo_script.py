@@ -4,7 +4,7 @@ import radar
 from analyzer_service import analyze_demo
 
 
-DEMO_PATH = "uploads/1-e7adbadb-e1a5-435e-af62-c9023940f7cb-1-1.dem"
+DEMO_PATH = "uploads/21b4819b-34cc-4080-a198-6b6a293663b5.dem"
 PLAYER = "wesiqe"
 
 

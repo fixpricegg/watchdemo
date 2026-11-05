@@ -20,6 +20,7 @@ import episodes
 import episode_context
 from library import MatchLibrary
 import pandas as pd
+from detectors.buy_mismatch import detect_buy_mismatch
 
 
 TICKRATE = 64
@@ -1161,6 +1162,10 @@ def analyze_demo(demo_path, player):
         lifecycle_deaths,
         match_library,
     )
+    buy_candidates = detect_buy_mismatch(
+        match_library,
+        player,
+    )
 
 
 
@@ -1253,6 +1258,81 @@ def analyze_demo(demo_path, player):
             )
         )
 
+    # =========================
+    # 5.2.1 Buy Mismatch
+    # =========================
+
+    for candidate in buy_candidates:
+        events.append(
+            create_event(
+                event_type="buy_mismatch_candidate",
+                category="neutral",
+                round_number=candidate["round"],
+                tick=candidate["tick"],
+                importance=1,
+                title="Buy Mismatch — Review",
+                description=(
+                    "Возможная несогласованная закупка: "
+                    f"{candidate['equipped_teammates']} союзника "
+                    "закупились, но игрок сохранил деньги "
+                    "при слабом снаряжении. "
+                    "Требуется проверка решения."
+                ),
+                data=candidate,
+            )
+        )
+
+    print("\n=== BUY MISMATCH VALIDATION ===")
+    print("Candidates:", len(buy_candidates))
+
+    print("\n=== BUY ECONOMY DIAGNOSTICS ===")
+
+    for round_number, _, start, end in match_library.round_intervals:
+        try:
+            state = match_library.get_game_state(start, player)
+        except ValueError:
+            print("Round", round_number, "NO STATE")
+            continue
+
+        player_id = state["perspective"]["steamid"]
+        team = state["perspective"]["team"]
+
+        teammates = [
+            p for p in state["ground_truth"]["players"]
+            if p.get("team") == team
+        ]
+
+        actor = next(
+            (p for p in teammates if p["steamid"] == player_id),
+            None,
+        )
+
+        if actor is None:
+            continue
+
+        economy = actor.get("economy") or {}
+
+        teammate_values = [
+            (p.get("economy") or {}).get("current_equip_value")
+            for p in teammates
+            if p["steamid"] != player_id
+        ]
+
+        print(
+            "Round:", round_number,
+            "| Equipment:", economy.get("current_equip_value"),
+            "| Balance:", economy.get("balance"),
+            "| Team equipment:", teammate_values,
+        )
+
+    for candidate in buy_candidates:
+        print(
+            "Round:", candidate["round"],
+            "Tick:", candidate["tick"],
+            "Equipment:", candidate["player_equipment_value"],
+            "Balance:", candidate["remaining_balance"],
+            "Equipped teammates:", candidate["equipped_teammates"],
+        )
 
     # =========================
     # 5.3 Trade kills
@@ -1546,7 +1626,8 @@ def analyze_demo(demo_path, player):
             "four_k": int(four_k),
             "ace": int(ace),
         },
-        "top_problems": top_problems
+        "top_problems": top_problems,
+        "buy_mismatch_candidates": buy_candidates,
     }
 
     # =========================
