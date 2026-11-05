@@ -220,6 +220,137 @@ class TestMissedTradeCandidates(unittest.TestCase):
             "not_established",
         )
 
+    def test_integrated_predeath_evidence(self):
+        self.library.get_predeath_support_context = (
+            lambda *args: {
+                "status": "sampled_evidence",
+                "support_timing": {
+                    "reference_tick": 140,
+                    "reference_source": "observed_damage_contact",
+                    "actor_life_at_reference": "alive",
+                    "activity": {"status": "no_weapon_event_observed"},
+                    "movement": {"status": "paired_samples"},
+                },
+                "support_geometry": {
+                    "status": "positions_observed",
+                    "tick": 140,
+                },
+            }
+        )
+
+        result = self.detect()[0]["decision_evidence"]
+
+        self.assertEqual(result["predeath"]["reference_tick"], 140)
+        self.assertEqual(
+            result["predeath"]["geometry_status"],
+            "positions_observed",
+        )
+
+    def test_postdeath_target_damage(self):
+        self.library.get_combat_window = lambda start, end: {
+            "status": "sources_parsed",
+            "parse_status": {
+                "weapon_fire": "parsed",
+                "player_hurt": "parsed",
+            },
+            "events": [{
+                "tick": 160,
+                "type": "player_hurt",
+                "data": {
+                    "actor_steamid": "123",
+                    "victim_steamid": "900",
+                },
+            }],
+        }
+
+        evidence = self.detect()[0]["decision_evidence"]
+
+        self.assertEqual(
+            evidence["status"], "target_damage_observed"
+        )
+        self.assertEqual(
+            evidence["postdeath"]["damage_killer_ticks"],
+            [160],
+        )
+
+    def test_no_shots_not_confirmed_mistake(self):
+        self.library.get_combat_window = lambda start, end: {
+            "status": "sources_parsed",
+            "parse_status": {
+                "weapon_fire": "parsed",
+                "player_hurt": "parsed",
+            },
+            "events": [],
+        }
+
+        evidence = self.detect()[0]["decision_evidence"]
+
+        self.assertFalse(
+            evidence["postdeath"]["weapon_event_observed"]
+        )
+        self.assertEqual(
+            evidence["verdict"], "not_evaluated"
+        )
+        self.assertEqual(
+            evidence["support_opportunity"], "not_established"
+        )
+
+    def test_flash_is_not_confirmed_mistake(self):
+        self.library.get_player_constraints = (
+            lambda tick, player: {
+                "status": "limitations_observed",
+                "limitations": ["flash_effect_observed"],
+                "unknown_fields": [],
+                "evidence": {"flash_duration": 2.0},
+            }
+        )
+
+        evidence = self.detect()[0]["decision_evidence"]
+
+        self.assertEqual(
+            evidence["status"], "player_limitations_observed"
+        )
+        self.assertEqual(
+            evidence["verdict"], "not_evaluated"
+        )
+
+    def test_missing_sources_remain_unknown(self):
+        evidence = self.detect()[0]["decision_evidence"]
+
+        self.assertIsNone(
+            evidence["postdeath"]["damaged_killer"]
+        )
+        self.assertEqual(
+            evidence["status"], "insufficient_evidence"
+        )
+
+    def test_smoke_prevents_confirmed_verdict(self):
+        self.library.get_active_utility_effects = (
+            lambda tick, player: {
+                "status": "observed",
+                "ongoing_candidates": [{
+                    "type": "smoke",
+                    "entity_id": 10,
+                    "start_tick": 120,
+                    "x": 50,
+                    "y": 0,
+                    "z": 0,
+                }],
+            }
+        )
+
+        result = self.detect()[0]["decision_evidence"]
+
+        self.assertEqual(
+            result["status"],
+            "visibility_unverified_smoke",
+        )
+        self.assertEqual(result["verdict"], "not_evaluated")
+        self.assertEqual(
+            result["smoke_visibility"]["status"],
+            "possible_smoke_occlusion",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

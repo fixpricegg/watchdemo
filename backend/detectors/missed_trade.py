@@ -9,6 +9,7 @@ from library.trade_geometry import (
     assess_trade_static_collision,
 )
 from library.trade_contact import assess_trade_contact
+from library.smoke_visibility import assess_smoke_visibility
 
 
 
@@ -225,6 +226,28 @@ def get_possible_missed_trades(
             killer_position,
         )
 
+        temporal_context = {
+            "status": "unavailable",
+            "reason": "temporal_context_not_supported",
+            "samples": [],
+            "sample_count": 0,
+            "continuous_state_verified": False,
+        }
+
+        get_timeline = getattr(
+            match_library,
+            "get_player_constraints_timeline",
+            None,
+        )
+
+        if callable(get_timeline):
+            temporal_context = get_timeline(
+                death_tick,
+                death_tick + trade_window_ticks,
+                player_id,
+            )
+
+
         contact = assess_trade_contact(
             match_library.team_observations,
             round_number=death_round,
@@ -235,7 +258,7 @@ def get_possible_missed_trades(
             end_tick=death_tick + trade_window_ticks,
         )
 
-        candidates.append({
+        candidate = {
             "type": "trade_review_candidate",
             "status": "review_required",
             "evaluation_status": "not_evaluated",
@@ -251,6 +274,7 @@ def get_possible_missed_trades(
             "trade_window_ticks": trade_window_ticks,
             "geometry": navigation,
             "static_collision": static_collision,
+            "temporal_context": temporal_context,
             "confidence": None,
             "severity": None,
             "evidence_scope": "post_match_ground_truth",
@@ -262,10 +286,210 @@ def get_possible_missed_trades(
                 "Trade feasibility has not been established.",
                 "Static trace uses sampled player origins, not eye positions.",
                 "Static collision tracing is experimental and is not verified LOS.",
+                "Temporal samples do not prove continuous action feasibility.",
+                "Post-death observations are evaluation evidence, not prior knowledge.",
             ],
             "contact": contact,
             "display_eligibility": "review_only",
+        }
 
-        })
+        candidate["decision_evidence"] = collect_trade_decision_evidence(
+            match_library,
+            player_name,
+            victim_id,
+            killer_id,
+            death_tick,
+            trade_window_ticks,
+            round_end,
+            actor_position=player_position,
+            killer_position=killer_position,
+        )
+
+        candidates.append(candidate)
+
 
     return candidates
+
+
+def collect_trade_decision_evidence(
+    library,
+    player_name,
+    victim_id,
+    killer_id,
+    death_tick,
+    trade_window_ticks,
+    round_end,
+    actor_position=None,
+    killer_position=None,
+):
+    result = {
+        "status": "insufficient_evidence",
+        "verdict": "not_evaluated",
+        "support_opportunity": "not_established",
+        "predeath": None,
+        "constraints": None,
+        "postdeath": {
+            "status": "unavailable",
+            "weapon_event_ticks": [],
+            "damage_killer_ticks": [],
+            "weapon_event_observed": None,
+            "damaged_killer": None,
+        },
+        "smoke_visibility": {
+            "status": "unknown",
+        },
+    }
+
+    get_predeath = getattr(
+        library, "get_predeath_support_context", None
+    )
+
+    if callable(get_predeath):
+        pre = get_predeath(
+            death_tick, player_name, victim_id, killer_id
+        )
+
+        timing = pre.get("support_timing") or {}
+        geometry = pre.get("support_geometry") or {}
+
+        result["predeath"] = {
+            "status": pre.get("status"),
+            "reference_tick": timing.get("reference_tick"),
+            "reference_source": timing.get("reference_source"),
+            "actor_life": timing.get("actor_life_at_reference"),
+            "activity": (timing.get("activity") or {}).get("status"),
+            "movement": timing.get("movement"),
+            "geometry_status": geometry.get("status"),
+            "geometry_tick": geometry.get("tick"),
+        }
+
+    get_constraints = getattr(
+        library, "get_player_constraints", None
+    )
+
+    if callable(get_constraints):
+        constraints = get_constraints(
+            death_tick, player_name
+        )
+
+        result["constraints"] = {
+            "status": constraints.get("status"),
+            "limitations": constraints.get("limitations", []),
+            "unknown_fields": constraints.get("unknown_fields", []),
+            "evidence": constraints.get("evidence", {}),
+        }
+
+    get_combat = getattr(library, "get_combat_window", None)
+
+    if callable(get_combat):
+        end = min(
+            death_tick + trade_window_ticks,
+            round_end - 1,
+        )
+
+        if end >= death_tick:
+            window = get_combat(death_tick, end)
+            sources = window.get("parse_status") or {}
+
+            weapon_ticks = []
+            damage_ticks = []
+            player_id = information.normalize_steamid(
+                library.get_game_state(
+                    death_tick, player_name
+                )["perspective"]["steamid"]
+            )
+            for event in window.get("events", []):
+                tick = int(event["tick"])
+
+                if not death_tick <= tick <= end:
+                    continue
+
+                data = event.get("data") or {}
+                actor_id = information.normalize_steamid(
+                    data.get("actor_steamid")
+                )
+                target_id = information.normalize_steamid(
+                    data.get("victim_steamid")
+                )
+
+                if actor_id != player_id:
+                    continue
+
+                if event["type"] == "weapon_fire":
+                    weapon_ticks.append(tick)
+
+                elif (
+                    event["type"] == "player_hurt"
+                    and target_id == killer_id
+                ):
+                    damage_ticks.append(tick)
+
+            post = result["postdeath"]
+            post["status"] = window.get("status", "unknown")
+            post["weapon_event_ticks"] = sorted(set(weapon_ticks))
+            post["damage_killer_ticks"] = sorted(set(damage_ticks))
+
+            post["weapon_event_observed"] = (
+                True if weapon_ticks
+                else False if sources.get("weapon_fire") == "parsed"
+                else None
+            )
+
+            post["damaged_killer"] = (
+                True if damage_ticks
+                else False if sources.get("player_hurt") == "parsed"
+                else None
+            )
+
+    get_utility = getattr(
+        library, "get_active_utility_effects", None
+    )
+
+    if callable(get_utility):
+        try:
+            utility = get_utility(
+                death_tick, player_name
+            )
+        except (ValueError, RuntimeError):
+            utility = None
+
+        result["smoke_visibility"] = assess_smoke_visibility(
+            actor_position,
+            killer_position,
+            utility,
+        )
+
+    pre = result["predeath"] or {}
+    constraints = result["constraints"] or {}
+    post = result["postdeath"]
+
+    if pre.get("actor_life") == "dead":
+        result["status"] = "not_applicable_actor_dead"
+
+    elif (
+        (pre.get("activity") == "damage_on_killer_observed")
+        or post["damaged_killer"] is True
+    ):
+        result["status"] = "target_damage_observed"
+
+    elif constraints.get("limitations"):
+        result["status"] = "player_limitations_observed"
+
+    elif (
+        pre.get("actor_life") == "alive"
+        and post["status"] == "sources_parsed"
+    ):
+        result["status"] = "review_required"
+
+    if (
+        result["smoke_visibility"]["status"]
+        == "possible_smoke_occlusion"
+        and result["status"] not in (
+            "not_applicable_actor_dead",
+            "target_damage_observed",
+        )
+    ):
+        result["status"] = "visibility_unverified_smoke"
+
+    return result
+

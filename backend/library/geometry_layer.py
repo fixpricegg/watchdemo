@@ -46,8 +46,12 @@ class GeometryLayer:
         path,
         *,
         allow_experimental_clear=False,
+        coordinate_space="gltf",
     ):
-        groups = load_physics_mesh(path)
+        groups = load_physics_mesh(
+            path,
+            coordinate_space=coordinate_space,
+        )
 
         return cls(
             groups,
