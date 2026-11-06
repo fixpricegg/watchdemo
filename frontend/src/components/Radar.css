@@ -197,6 +197,13 @@
     border-style: dashed;
 }
 
+/* Keep planted C4 centered on its position after defuse or explosion too. */
+.bomb-marker-planted,
+.bomb-marker-defused,
+.bomb-marker-exploded {
+    transform: translate(-50%, -50%);
+}
+
 .bomb-marker-planted {
     background: #ff6961;
     color: #ffffff;

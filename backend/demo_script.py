@@ -4,8 +4,8 @@ import radar
 from analyzer_service import analyze_demo
 
 
-DEMO_PATH = "demos/match18cache.dem"
-PLAYER = "StRoGo"
+DEMO_PATH = "demos/match20nuke.dem"
+PLAYER = "wesiqe"
 
 
 def main():

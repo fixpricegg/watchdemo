@@ -1,5 +1,4 @@
 function UploadPage({
-    demoFile,
     setDemoFile,
     players,
     uploadedFilename,

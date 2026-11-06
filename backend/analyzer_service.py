@@ -1,9 +1,29 @@
 from demoparser2 import DemoParser
-from missed_trade import get_possible_missed_trades
+from adr import calculate_adr
+from detectors.missed_trade import get_possible_missed_trades
 from report import generate_report
 import radar
+import os
+from library.geometry_layer import GeometryLayer
+from bomb_entities import parse_bomb_entities
+from library.loss_bonus import CT_LOSS_FIELD, T_LOSS_FIELD
+from library.player_economy_history import (
+    build_prebuy_snapshots,
+)
+from pathlib import Path
 import information
+import map_geometry
+import candidates
+import context
+import detectors
+import episodes
+import episode_context
+from library import MatchLibrary
 import pandas as pd
+from detectors.buy_mismatch import detect_buy_mismatch
+from detectors.entry_death import detect_entry_deaths, enemy_deaths
+from review_findings import build_review_findings, prioritize_reviews
+
 
 TICKRATE = 64
 ROUND_TIME_SECONDS = 115
@@ -71,9 +91,16 @@ def get_game_ticks_between(start_tick, event_tick, live_ticks_df):
     ]
     return ticks_in_range["tick"].nunique()
 
-def safe_parse_event(parser, event_name):
+def safe_parse_event(parser, event_name, player_props=None):
     try:
-        result = parser.parse_event(event_name)
+        if player_props:
+            try:
+                result = parser.parse_event(event_name, player=player_props)
+            except Exception as e:
+                print(f"WARNING: {event_name} coordinates unavailable: {e}")
+                result = parser.parse_event(event_name)
+        else:
+            result = parser.parse_event(event_name)
 
         if isinstance(result, pd.DataFrame):
             return result
@@ -285,17 +312,65 @@ def analyze_demo(demo_path, player):
     # =========================
     # 2. Deaths
     # =========================
-    deaths = parser.parse_event("player_death")
+    try:
+        # Teams at the death event remain valid across halftime/overtime.
+        deaths_raw = parser.parse_event("player_death", player=["team_num"])
+    except Exception:
+        # Missing team fields remain unknown in rewards; never use final teams.
+        deaths_raw = parser.parse_event("player_death")
 
-    if deaths.empty:
+    if deaths_raw.empty:
         raise ValueError(
             "В демке не найдено событий player_death."
         )
 
-    deaths = clean_deaths(deaths)
+    # Полный поток смертей нужен для lifecycle.
+    # Здесь ничего не удаляем по оружию или причине смерти.
+    lifecycle_deaths_raw = deaths_raw.copy()
+
+    combat_event_frames = {}
+
+    combat_required = {
+        "weapon_fire": {"tick", "user_steamid"},
+        "player_hurt": {
+            "tick",
+            "attacker_steamid",
+            "user_steamid",
+        },
+    }
+
+    for event_name, required in combat_required.items():
+        try:
+            frame = parser.parse_event(event_name)
+
+            if frame is None:
+                raise ValueError("Parser returned None")
+
+            if not isinstance(frame, pd.DataFrame):
+                frame = pd.DataFrame(frame)
+
+            if not frame.empty and not required.issubset(
+                frame.columns
+            ):
+                raise ValueError(
+                    f"Missing required columns: "
+                    f"{required - set(frame.columns)}"
+                )
+
+            combat_event_frames[event_name] = frame
+
+        except Exception as error:
+            print(
+                f"WARNING: {event_name} unavailable: {error}"
+            )
+            combat_event_frames[event_name] = None
+
+    # Для статистики и старых метрик используем очищенную версию.
+    deaths = clean_deaths(
+        deaths_raw.copy()
+    )
 
     # Отдельная копия для kill feed.
-    # Здесь сохраняются в том числе убийства ножом.
     deaths_for_kill_feed = deaths.copy()
 
     if "weapon" in deaths.columns:
@@ -324,7 +399,7 @@ def analyze_demo(demo_path, player):
     demo_end_tick = None
 
     if (
-        "tick_df" in globals()
+        "tick_df" in locals()
         and isinstance(tick_df, pd.DataFrame)
         and not tick_df.empty
         and "tick" in tick_df.columns
@@ -364,7 +439,9 @@ def analyze_demo(demo_path, player):
     ]
 
     bomb_event_frames = {
-        event_name: safe_parse_event(parser, event_name)
+        event_name: safe_parse_event(
+            parser, event_name, player_props=["X", "Y", "Z"]
+        )
         for event_name in bomb_event_names
     }
 
@@ -505,6 +582,30 @@ def analyze_demo(demo_path, player):
 
     deaths_clean = pd.DataFrame(clean_deaths_list)
 
+    lifecycle_deaths_list = []
+
+    for _, death in lifecycle_deaths_raw.iterrows():
+        death_tick = death.get("tick")
+
+        if pd.isna(death_tick):
+            continue
+
+        for match_round, demo_round, start_tick, end_tick in round_intervals:
+            if start_tick <= death_tick < end_tick:
+                death_copy = death.copy()
+                death_copy["round"] = match_round
+
+                lifecycle_deaths_list.append(
+                    death_copy
+                )
+
+                break
+
+    lifecycle_deaths = pd.DataFrame(
+        lifecycle_deaths_list
+    )
+
+
     if deaths_clean.empty:
         raise ValueError(
             "После фильтрации по live-раундам не осталось смертей."
@@ -591,7 +692,6 @@ def analyze_demo(demo_path, player):
             ),
         })
 
-    print(f"KILL FEED EVENTS: {len(kill_feed)}")
 
     # =========================
     # 4.1 Positions
@@ -615,6 +715,34 @@ def analyze_demo(demo_path, player):
             "is_bomb_dropped",
             "is_bomb_planted",
             "approximate_spotted_by",
+
+            "pitch",
+
+            "velocity",
+            "velocity_X",
+            "velocity_Y",
+            "velocity_Z",
+
+            "is_walking",
+            "is_airborne",
+            "in_crouch",
+            "duck_amount",
+            "is_strafing",
+
+            "has_defuser",
+            "flash_duration",
+
+            "balance",
+            "start_balance",
+            "cash_spent_this_round",
+            "current_equip_value",
+            "round_start_equip_value",
+
+            "active_weapon_ammo",
+            "total_ammo_left",
+            "is_in_reload",
+            "is_scoped",
+            "shots_fired",
         ])
     except Exception as e:
         print("POSITION PARSE WITH TEAM ERROR:", e)
@@ -637,6 +765,34 @@ def analyze_demo(demo_path, player):
             "is_bomb_dropped",
             "is_bomb_planted",
             "approximate_spotted_by",
+
+            "pitch",
+
+            "velocity",
+            "velocity_X",
+            "velocity_Y",
+            "velocity_Z",
+
+            "is_walking",
+            "is_airborne",
+            "in_crouch",
+            "duck_amount",
+            "is_strafing",
+
+            "has_defuser",
+            "flash_duration",
+
+            "balance",
+            "start_balance",
+            "cash_spent_this_round",
+            "current_equip_value",
+            "round_start_equip_value",
+
+            "active_weapon_ammo",
+            "total_ammo_left",
+            "is_in_reload",
+            "is_scoped",
+            "shots_fired",
         ])
 
         position_df["team_num"] = None
@@ -663,20 +819,214 @@ def analyze_demo(demo_path, player):
         )
     )
 
-    print(
-        f"Team observations: "
-        f"{len(team_observations)}"
+    # Extract team loss counters at round boundaries.
+    loss_ticks = set()
+
+    for _, _, start_tick, end_tick in round_intervals:
+        start_tick = int(start_tick)
+        end_tick = int(end_tick)
+
+        loss_ticks.add(start_tick)
+        loss_ticks.add(max(0, end_tick - 1))
+
+    if not round_ends.empty and "tick" in round_ends.columns:
+        for tick in round_ends["tick"].dropna():
+            tick = int(tick)
+
+            loss_ticks.add(max(0, tick - 1))
+            loss_ticks.add(tick)
+            loss_ticks.add(tick + 1)
+
+    loss_counter_df = parser.parse_ticks(
+        [CT_LOSS_FIELD, T_LOSS_FIELD],
+        ticks=sorted(loss_ticks),
     )
 
-    print()
-    print("INFORMATION MODEL:")
-    print(f"Spot events: {len(spot_events)}")
-    print(
-        f"Team spot windows: "
-        f"{len(team_spot_windows)}"
+    prebuy_snapshots = build_prebuy_snapshots(
+        parser,
+        round_intervals,
     )
 
-    print()
+    # Geometry is available only for validated maps.
+    geometry = None
+
+    if map_name == "de_nuke":
+        nav_path = (
+                Path(__file__).resolve().parent
+                / "maps"
+                / "de_nuke_nav.json"
+        )
+        geometry = map_geometry.MapGeometry(nav_path)
+
+
+    collision_geometry = None
+
+    if map_name == "de_nuke":
+        collision_path = os.environ.get(
+            "WATCHDEMO_NUKE_COLLISION_GLTF"
+        )
+
+        if collision_path:
+            collision_geometry = GeometryLayer.from_gltf(
+                collision_path,
+                coordinate_space="source2_raw",
+            )
+
+
+
+    match_library = MatchLibrary(
+        map_name=map_name,
+        position_df=position_df,
+        round_intervals=round_intervals,
+        round_ends=round_ends,
+        deaths_df=lifecycle_deaths,
+        team_observations=team_observations,
+        team_spot_windows=team_spot_windows,
+        loss_counter_df=loss_counter_df,
+        prebuy_snapshots=prebuy_snapshots,
+        geometry=geometry,
+        collision_geometry=collision_geometry,
+    )
+
+
+
+
+
+    selected_players = player_info[player_info["name"] == player]
+    player_economy_history = (
+        match_library.get_player_economy_history(
+            information.normalize_steamid(selected_players.iloc[0]["steamid"])
+        ) if len(selected_players) == 1 else []
+    )
+
+    # =========================
+    # 4.1.0.1 Action episodes v2
+    # =========================
+
+    movement_episodes = []
+
+    for round_data in timeline_rounds:
+        round_number = int(
+            round_data["round"]
+        )
+
+        round_episodes = (
+            episodes.build_movement_episodes(
+                position_df=position_df,
+                player_name=player,
+                round_number=round_number,
+                round_start_tick=int(
+                    round_data[
+                        "live_start_tick"
+                    ]
+                ),
+                round_end_tick=int(
+                    round_data[
+                        "end_tick"
+                    ]
+                ),
+            )
+        )
+
+        movement_episodes.extend(
+            round_episodes
+        )
+
+
+
+    movement_episode_contexts = []
+
+    if geometry is not None:
+        movement_episode_contexts = (
+            episode_context
+            .build_episode_contexts(
+                geometry=geometry,
+
+
+                position_df=
+                position_df,
+
+                team_observations=
+                team_observations,
+
+                team_spot_windows=
+                team_spot_windows,
+
+                deaths_df=
+                lifecycle_deaths,
+
+                movement_episodes=
+                movement_episodes,
+            )
+        )
+
+
+    # Geometry v1 сейчас реализована только для Nuke.
+    # Для остальных карт analysis-core пока не запускаем,
+    # чтобы случайно не анализировать их геометрией Nuke.
+
+    all_candidate_events = []
+    candidate_contexts = []
+    potential_bad_entries = []
+
+    if geometry is not None:
+
+
+        # =========================
+        # 4.1.0.1 Candidate moments
+        # =========================
+
+        for round_data in timeline_rounds:
+            round_number = int(
+                round_data["round"]
+            )
+
+            round_candidates = (
+                candidates.detect_player_enters_enemy_region(
+                    geometry=geometry,
+                    position_df=position_df,
+                    team_observations=team_observations,
+                    team_spot_windows=team_spot_windows,
+                    player_name=player,
+                    deaths_df=lifecycle_deaths,
+                    round_number=round_number,
+                    round_start_tick=int(
+                        round_data["live_start_tick"]
+                    ),
+                    round_end_tick=int(
+                        round_data["end_tick"]
+                    ),
+                    step_ticks=16,
+                )
+            )
+
+            all_candidate_events.extend(
+                round_candidates
+            )
+
+        # =========================
+        # 4.1.0.2 Decision context
+        # =========================
+
+        candidate_contexts = (
+            context.build_contexts(
+                geometry=geometry,
+                position_df=position_df,
+                deaths_df=deaths_clean,
+                team_spot_windows=team_spot_windows,
+                candidates=all_candidate_events,
+                window_ticks=64,
+                outcome_ticks=192,
+            )
+        )
+
+
+        potential_bad_entries = (
+            detectors.detect_potentially_bad_entries(
+                candidate_contexts
+            )
+        )
+
 
     # =========================
     # 4.1.1 Timeline score
@@ -763,17 +1113,38 @@ def analyze_demo(demo_path, player):
         for timeline_round in timeline_rounds
     ]
 
+    # Required for actual C4 flight/landing/plant positions. Do not silently
+    # substitute player coordinates if entity extraction fails.
+    bomb_entity_stream = parse_bomb_entities(demo_path)
+
     radar_match = radar.build_radar_match(
         position_df,
         map_name,
         player_info,
         bomb_event_frames=bomb_event_frames,
         round_reset_ticks=round_reset_ticks,
+        bomb_entity_stream=bomb_entity_stream,
         grenade_df=grenade_df,
         grenade_event_frames=grenade_event_frames,
     )
 
+    match_library.attach_radar_round_context(
+        radar_match["bomb"],
+        tickrate=TICKRATE,
+        round_time_seconds=ROUND_TIME_SECONDS,
+    )
+
     radar_match["kills"] = kill_feed
+
+
+    match_library.attach_event_timeline(
+        grenade_event_frames=grenade_event_frames,
+        bomb_event_frames=bomb_event_frames,
+        grenade_tracks=radar_match["grenades"],
+        combat_event_frames=combat_event_frames,
+    )
+    timeline = match_library.event_timeline
+
 
     # radar.export_radar_json(
     #     radar_match,
@@ -785,15 +1156,19 @@ def analyze_demo(demo_path, player):
     # =========================
     events = []
 
-    missed_trade_events = []
 
-    if position_df is not None:
-        missed_trade_events = get_possible_missed_trades(
-            player,
-            deaths_clean,
-            player_info,
-            position_df
-        )
+    trade_review_candidates = get_possible_missed_trades(
+        player,
+        lifecycle_deaths,
+        match_library,
+    )
+    buy_candidates = detect_buy_mismatch(match_library, player)
+    entry_candidates = detect_entry_deaths(match_library, player, lifecycle_deaths)
+    review_findings = build_review_findings(entry_candidates, trade_review_candidates, buy_candidates)
+    combat_deaths = enemy_deaths(lifecycle_deaths, match_library)
+
+
+
 
     player_kills = deaths_clean[deaths_clean["attacker_name"] == player]
     player_deaths = deaths_clean[deaths_clean["user_name"] == player]
@@ -861,24 +1236,15 @@ def analyze_demo(demo_path, player):
     # =========================
     # 5.2 Missed trades
     # =========================
-    for missed_trade in missed_trade_events:
-        events.append(
-            create_event(
-                event_type="missed_trade",
-                category="negative",
-                round_number=missed_trade["round"],
-                tick=missed_trade["tick"],
-                importance=2,
-                title="Missed Trade",
-                description=(
-                    f"После смерти {missed_trade['dead_teammate']} "
-                    f"у тебя мог быть размен. "
-                    f"{missed_trade['killer']} оставался жив ещё "
-                    f"{missed_trade['killer_alive_ticks'] / TICKRATE:.1f} сек."
-                ),
-                data=missed_trade
-            )
-        )
+
+    # All detector observations remain neutral review candidates.
+    for finding in review_findings:
+        events.append(create_event(
+            event_type=finding["type"], category="neutral",
+            round_number=finding["round"], tick=finding["tick"],
+            importance=finding["review_priority"], title=finding["title"],
+            description=finding["description"], data=finding,
+        ))
 
     # =========================
     # 5.3 Trade kills
@@ -962,9 +1328,10 @@ def analyze_demo(demo_path, player):
     first_death_times = []
 
     for match_round, demo_round, live_start_tick, live_end_tick in round_intervals:
-        round_kills = deaths_clean[
-            (deaths_clean["tick"] >= live_start_tick) &
-            (deaths_clean["tick"] < live_end_tick)
+        round_kills = combat_deaths[
+            (combat_deaths["round"] == match_round) &
+            (combat_deaths["tick"] >= live_start_tick) &
+            (combat_deaths["tick"] < live_end_tick)
         ]
 
         if round_kills.empty:
@@ -985,31 +1352,6 @@ def analyze_demo(demo_path, player):
         if first_kill["user_name"] == player:
             entry_deaths += 1
             first_death_times.append(game_ticks_to_first_event)
-
-            event_type = "early_death"
-            importance = 2
-
-            if game_ticks_to_first_event < 1600:
-                event_type = "failed_entry"
-                importance = 3
-
-            events.append(
-                create_event(
-                    event_type=event_type,
-                    category="negative",
-                    round_number=match_round,
-                    tick=first_kill["tick"],
-                    time=format_time_left(game_ticks_to_first_event),
-                    importance=importance,
-                    title="Провальный entry" if event_type == "failed_entry" else "Ранняя смерть",
-                    description="Ты умер первым в раунде и оставил команду в меньшинстве.",
-                    data={
-                        "killer": first_kill["attacker_name"],
-                        "victim": first_kill["user_name"],
-                        "demo_round": int(demo_round),
-                    }
-                )
-            )
 
     # =========================
     # 6. Averages
@@ -1107,13 +1449,32 @@ def analyze_demo(demo_path, player):
         },
     ]
 
-    top_problems = sorted(problems, key=lambda x: x["score"], reverse=True)
-    top_problems = [p for p in top_problems if p["score"] >= 2][:3]
+    statistical_signals = sorted(problems, key=lambda x: x["score"], reverse=True)
+    statistical_signals = [p for p in statistical_signals if p["score"] >= 2][:3]
+    for signal in statistical_signals:
+        signal["status"] = "statistical_signal"
+        signal["description"] = "Статистический сигнал: " + signal["name"] + ". Сам по себе не доказывает игровую ошибку."
+    top_problems = prioritize_reviews(review_findings)
+
+    # ADR uses event-time sides and exact pre-hit health; no library/detector changes.
+    try:
+        adr_hurts = parser.parse_event("player_hurt", player=["team_num"])
+        adr_pre_health = parser.parse_ticks(
+            ["health"], ticks=sorted({max(0, int(t) - 1) for t in adr_hurts["tick"].dropna()})
+        ) if not adr_hurts.empty else None
+    except Exception:
+        adr_hurts, adr_pre_health = None, None
+    adr_data = calculate_adr(
+        adr_hurts, timeline_rounds, round_ends, position_df, adr_pre_health,
+        selected_players.iloc[0]["steamid"] if len(selected_players) == 1 else None,
+    )
 
     # =========================
     # 8. Stats for report.py
     # =========================
     stats = {
+        "adr": adr_data["value"],
+        "adr_details": adr_data,
         "kd": kd,
         "kills": kills_count,
         "two_k": two_k,
@@ -1130,6 +1491,7 @@ def analyze_demo(demo_path, player):
         "avg_time_first_kill": avg_time_first_kill,
         "avg_time_first_death": avg_time_first_death,
         "top_problems": top_problems,
+        "review_findings": review_findings,
         "events": events,
     }
 
@@ -1138,8 +1500,11 @@ def analyze_demo(demo_path, player):
     # =========================
     report_data = {
         "player": player,
+        "player_economy_history": player_economy_history,
         "map": map_name,
+        "adr_details": adr_data,
         "summary": {
+            "adr": adr_data["value"],
             "kills": int(kills_count),
             "deaths": int(deaths_count),
             "kd": round(float(kd), 2),
@@ -1154,7 +1519,12 @@ def analyze_demo(demo_path, player):
             "four_k": int(four_k),
             "ace": int(ace),
         },
-        "top_problems": top_problems
+        "top_problems": top_problems,
+        "review_findings": review_findings,
+        "statistical_signals": statistical_signals,
+        "entry_death_candidates": entry_candidates,
+        "missed_trade_candidates": trade_review_candidates,
+        "buy_mismatch_candidates": buy_candidates,
     }
 
     # =========================

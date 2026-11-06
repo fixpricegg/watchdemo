@@ -1,4 +1,3 @@
-import { useRef } from "react";
 
 import { getMapConfig } from "../config/maps";
 
@@ -8,7 +7,6 @@ import KillFeed from "./KillFeed";
 import "./Radar.css";
 
 function Radar({ tickIndex, radarData }) {
-    const playerFloorState = useRef({});
 
     if (!radarData) {
         return null;
@@ -112,26 +110,14 @@ function Radar({ tickIndex, radarData }) {
                 pos?.z !== null &&
                 pos?.z !== undefined
             ) {
-                const previousFloor =
-                    playerFloorState.current[
-                        player.steamid
-                    ] ?? "upper";
-
-                if (previousFloor === "lower") {
-                    floor =
-                        pos.z < NUKE_EXIT_LOWER_Z
-                            ? "lower"
-                            : "upper";
-                } else {
-                    floor =
-                        pos.z <= NUKE_ENTER_LOWER_Z
-                            ? "lower"
-                            : "upper";
+                // Reconstruct hysteresis from frames up to this tick. A mutable
+                // last-render value leaks future floor state when seeking back.
+                for (const sample of player.positions ?? []) {
+                    if (sample.tick > currentTick) break;
+                    if (!Number.isFinite(sample.z)) continue;
+                    if (sample.z <= NUKE_ENTER_LOWER_Z) floor = "lower";
+                    else if (sample.z >= NUKE_EXIT_LOWER_Z) floor = "upper";
                 }
-
-                playerFloorState.current[
-                    player.steamid
-                ] = floor;
             }
 
             return {
@@ -504,7 +490,7 @@ function Radar({ tickIndex, radarData }) {
                                 />
 
                                 {playersWithFloor.map(
-                                    (player, index) => {
+                                    (player) => {
                                         const pos =
                                             player.currentPosition;
 
@@ -652,7 +638,7 @@ function Radar({ tickIndex, radarData }) {
                     />
 
                     {playersWithFloor.map(
-                        (player, index) => {
+                        (player) => {
                             const pos =
                                 player.currentPosition;
 
@@ -688,7 +674,7 @@ function Radar({ tickIndex, radarData }) {
 
                             return (
                                 <div
-                                    key={index}
+                                    key={player.steamid}
                                     className={`player-dot ${aliveClass} ${
                                         team ===
                                         "CT"
